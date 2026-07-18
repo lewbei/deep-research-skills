@@ -12,7 +12,7 @@ def validate_frontmatter(skill_path: str) -> Tuple[bool, str]:
         with open(skill_path, "r", encoding="utf-8") as f:
             content = f.read()
             
-        match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+        match = re.match(r"^---\r?\n(.*?)\r?\n---", content, re.DOTALL)
         if not match:
             return False, "Missing standard frontmatter delimiter (---)."
             
@@ -78,7 +78,13 @@ def validate_session_state_schema(workspace: str) -> List[str]:
             
             if i > 0 and last_phase is not None:
                 allowed_next = graph_config.get(last_phase, {}).get("transitions", [])
-                if current_phase not in allowed_next:
+                
+                # Check sprint mode bypasses: allows research phases to escape directly to Phase 7
+                is_sprint_bypass = (entry.mode == "sprint" and last_phase in ["3.5", "4", "5", "6"] and current_phase == "7")
+                # Check halt mode emergency reflections: allows any phase to escape to Phase 10
+                is_halt_bypass = (entry.mode == "halt" and current_phase == "10")
+                
+                if not (is_sprint_bypass or is_halt_bypass or current_phase in allowed_next):
                     errors.append(f"Ledger transition error: phase {current_phase} is not an approved edge from phase {last_phase} in the active graph config")
             last_phase = current_phase
             

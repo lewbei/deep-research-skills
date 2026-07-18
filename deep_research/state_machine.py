@@ -20,11 +20,19 @@ DEFAULT_PHASES = {
     "10": {"category": "execution", "transitions": []}
 }
 
+RESEARCH_PHASES = {"1", "2", "3", "3.5", "4", "5", "6", "research", "feasibility", "landscape", "verify"}
+
+def normalize_phase_str(p: Any) -> str:
+    s = str(p)
+    if s.endswith(".0"):
+        return s[:-2]
+    return s
+
 def validate_graph_schema(phases_data: Dict[str, Any]):
     if not isinstance(phases_data, dict):
         raise ValueError("Root transitions config under 'phases' must be a dictionary mapping.")
         
-    all_phases = set(phases_data.keys())
+    all_phases = {normalize_phase_str(p) for p in phases_data.keys()}
     
     # Require initial phase "1" or "init" or custom defined initial phase
     if not any(p in all_phases for p in ["1", "init"]):
@@ -40,9 +48,8 @@ def validate_graph_schema(phases_data: Dict[str, Any]):
             raise ValueError(f"Transitions for phase '{phase_name}' must be a list of target strings. Got {type(transitions)}.")
             
         for target in transitions:
-            if not isinstance(target, str):
-                raise ValueError(f"Transition target in phase '{phase_name}' must be a string, got '{target}'")
-            if target not in all_phases:
+            target_norm = normalize_phase_str(target)
+            if target_norm not in all_phases:
                 raise ValueError(f"Transition target '{target}' in phase '{phase_name}' does not exist in defined phases.")
                 
         if len(transitions) == 0:
@@ -65,16 +72,27 @@ def load_graph_config(workspace: str) -> Dict[str, Dict[str, Any]]:
                 # Convert format
                 config = {}
                 for phase, cfg in phases_data.items():
-                    config[str(phase)] = {
+                    phase_norm = normalize_phase_str(phase)
+                    config[phase_norm] = {
                         "category": cfg.get("category", "execution"),
-                        "transitions": [str(t) for t in cfg.get("transitions", [])],
+                        "transitions": [normalize_phase_str(t) for t in cfg.get("transitions", [])],
                         "required_artifacts": cfg.get("required_artifacts", [])
                     }
                 return config
         except Exception as e:
             # FAIL CLOSED: Raise exception on malformed transition config
             raise ValueError(f"Workflow execution blocked: Invalid transitions.yaml ({e})")
-    return DEFAULT_PHASES
+            
+    # Normalize DEFAULT_PHASES
+    normalized_defaults = {}
+    for phase, cfg in DEFAULT_PHASES.items():
+        phase_norm = normalize_phase_str(phase)
+        normalized_defaults[phase_norm] = {
+            "category": cfg["category"],
+            "transitions": [normalize_phase_str(t) for t in cfg["transitions"]],
+            "required_artifacts": cfg.get("required_artifacts", [])
+        }
+    return normalized_defaults
 
 def check_phase_exit_requirements(workspace: str, phase_config: Dict[str, Any]):
     req_artifacts = phase_config.get("required_artifacts", [])
@@ -84,16 +102,17 @@ def check_phase_exit_requirements(workspace: str, phase_config: Dict[str, Any]):
             raise ValueError(f"Transition denied: Phase exit requirement missing. Artifact '{artifact}' must exist.")
 
 def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str) -> str:
+    # Normalize inputs
+    from_p = normalize_phase_str(from_p)
+    to_p = normalize_phase_str(to_p)
+    
     # 1. Load configuration (fails closed if transitions.yaml is invalid)
     phases_config = load_graph_config(workspace)
     
     # 2. Get current phase
     current_phase = "1"
     if state.ledger:
-        current_phase = str(state.ledger[-1].phase)
-        # Strip float suffix if formatting slipped
-        if current_phase.endswith(".0"):
-            current_phase = current_phase[:-2]
+        current_phase = normalize_phase_str(state.ledger[-1].phase)
             
     if current_phase != from_p:
         # Emergency exception: allow termination from ANY phase if mode is 'halt'
@@ -106,9 +125,6 @@ def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str
     if state.current_mode == "halt":
         if to_p != "10":
             raise ValueError(f"Transition denied: Current mode is 'halt' (budget exhausted). Cannot transition to Phase {to_p}. Run Phase 10 emergency reflection.")
-        else:
-            # Emergency terminal transition approved
-            print("Emergency terminal transition triggered due to Halt mode.", file=sys.stderr)
     else:
         # Check targets in normal mode
         phase_cfg = phases_config.get(from_p, {})
@@ -127,8 +143,8 @@ def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str
         if state.current_mode == "sprint" and target_cfg.get("category") == "research":
             raise ValueError(f"Transition denied: Current mode is 'sprint' (research prohibited). Cannot transition to research Phase {to_p}.")
 
-    # 4. Check exit requirements of from_p
-    if from_p in phases_config:
+    # 4. Check exit requirements of from_p (except in emergency halt mode)
+    if state.current_mode != "halt" and from_p in phases_config:
         check_phase_exit_requirements(workspace, phases_config[from_p])
 
     # 5. Approve transition and update ledger

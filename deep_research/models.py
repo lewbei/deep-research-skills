@@ -98,8 +98,10 @@ class SessionState:
         
         ledger = []
         for entry in data.get("ledger", []):
-            # Parse phase strictly as string
-            phase_val = str(entry.get("phase"))
+            phase_raw = entry.get("phase")
+            if phase_raw is None:
+                raise ValueError("Ledger entry missing phase attribute.")
+            phase_val = str(phase_raw)
             ledger.append(LedgerEntry(
                 iteration=entry.get("iteration"),
                 phase=phase_val,

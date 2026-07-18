@@ -206,8 +206,8 @@ class TestDeepResearchRuntime(unittest.TestCase):
         res_block = self.run_drs(["transition", "1", "2"])
         self.assertNotEqual(res_block.returncode, 0)
         
-        # But emergency/sprint bypass transition directly from Phase 4 to Phase 7 is allowed!
-        # First transition 1 -> 2 -> 3 -> 3.5 -> 4 (requires resetting mode to explore first)
+        # But emergency/sprint bypass transition directly from Phase 3.5 to Phase 7 is allowed!
+        # First transition 1 -> 2 -> 3 -> 3.5 (requires resetting mode to explore first)
         with open(state_path, "r") as f:
             state = json.load(f)
         state["current_mode"] = "explore"
@@ -217,19 +217,22 @@ class TestDeepResearchRuntime(unittest.TestCase):
         self.run_drs(["transition", "1", "2"])
         self.run_drs(["transition", "2", "3"])
         self.run_drs(["transition", "3", "3.5"])
-        self.run_drs(["transition", "3.5", "4"])
         
-        # Set to sprint mode at phase 4
+        # Set to sprint mode at phase 3.5
         with open(state_path, "r") as f:
             state = json.load(f)
         state["current_mode"] = "sprint"
         with open(state_path, "w") as f:
             json.dump(state, f)
             
-        # Sprint escape transition 4 -> 7
-        res_escape = self.run_drs(["transition", "4", "7"])
+        # Sprint escape transition 3.5 -> 7
+        res_escape = self.run_drs(["transition", "3.5", "7"])
         self.assertEqual(res_escape.returncode, 0, res_escape.stderr)
         self.assertIn("Workflow advanced. Current phase: 7", res_escape.stdout)
+        
+        # Run validation check to ensure bypass is correctly accepted
+        res_val = self.run_drs(["validate"])
+        self.assertEqual(res_val.returncode, 0, res_val.stderr)
 
         # 3. Test halt emergency transition to Phase 10 from any phase
         with open(state_path, "r") as f:
@@ -242,6 +245,10 @@ class TestDeepResearchRuntime(unittest.TestCase):
         res_halt = self.run_drs(["transition", "7", "10"])
         self.assertEqual(res_halt.returncode, 0, res_halt.stderr)
         self.assertIn("Workflow advanced. Current phase: 10", res_halt.stdout)
+        
+        # Run validation check to ensure halt bypass is correctly accepted
+        res_val2 = self.run_drs(["validate"])
+        self.assertEqual(res_val2.returncode, 0, res_val2.stderr)
 
 if __name__ == "__main__":
     unittest.main()
