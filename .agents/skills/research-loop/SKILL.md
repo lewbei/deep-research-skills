@@ -19,12 +19,12 @@ You MUST use the `./drs` CLI tool to initialize, track, and validate all workflo
    - Run Phase 1 (extract goal & constraints; write to `unknowns-registry.md`, `time-budget.md`, etc.).
    - Advance phase via `./drs transition 1 2` to run Phase 2 (validate feasibility — bounded landscape scans).
    - Advance phase via `./drs transition 2 3` to run Phase 3 (broad research sweep — map the landscape).
-   - Then enter the loop.
+   - Advance phase via `./drs transition 3 3.5` to enter the loop at Phase 3.5 (Budget Checkpoint).
 
 2. **If artifacts already exist** (loop is resuming):
    - Read `unknowns-registry.md`, `hypothesis-tree.md`, `decision-log.md`, `time-budget.md`, `proxy-log.md`, `human-escalation-policy.md`, `probe-registry.md`, `landscape-table.md`.
    - Run `./drs status` to confirm the active state.
-   - Resume at Phase 3.5 (budget checkpoint) then Phase 4.
+   - Inspect the active phase, and resume execution from that exact phase. Never assume Phase 3.5.
 
 ## The loop (Phases 3.5-9)
 
@@ -34,7 +34,7 @@ Each iteration:
 
 1. **Budget checkpoint (Phase 3.5):** Run `./drs budget` to calculate elapsed pacing and transition budget modes. If a threshold is crossed, follow `time-budget.md` rules and escalate if needed.
 2. **Check `unknowns-registry.md` (Phase 4):** Transition via `./drs transition 3.5 4`. Pick the highest-priority open unknown that blocks a decision.
-3. **Research it (Phase 5):** Transition via `./drs transition 4 5`. Use `@skills:landscape-scan` or `@skills:deep-dive`. Update the registry with findings.
+3. **Research it (Phase 5):** Transition via `./drs transition 4 5`. Use `@skills:landscape-scan` or `@skills:deep-dive`. Run `@skills:verify` to audit all extracted claims for P0/P1 unknowns. Only transition to Phase 6 once verification returns `aligned` or `minor-drift` for all key claims.
 4. **Hypothesis validation (Phase 6):** Transition via `./drs transition 5 6`. Update `hypothesis-tree.md` branches. Ensure P0/P1 branches have a `proxy-log.md` entry.
 5. **Pick the next execution step (Phase 7):** Transition via `./drs transition 6 7` (or `./drs transition 4 7` if no new research was needed). Populate `mega-plan.md`.
 6. **Execute 1 bounded unit of work (Phase 8):** Transition via `./drs transition 7 8`. Execute the probe/code, implement, test, and measure. Record results.

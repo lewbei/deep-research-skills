@@ -21,9 +21,10 @@ class TestDeepResearchRuntime(unittest.TestCase):
     def run_drs(self, args, cwd=None):
         if cwd is None:
             cwd = self.test_dir
-        # Run `./drs` CLI tool
-        drs_path = os.path.join(self.test_dir, "drs")
-        result = subprocess.run([drs_path] + args, cwd=cwd, capture_output=True, text=True)
+        # Run deep_research.cli module directly using Python to ensure cross-platform compatibility
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.path.pathsep.join([self.test_dir, env.get("PYTHONPATH", "")])
+        result = subprocess.run([sys.executable, "-m", "deep_research.cli"] + args, cwd=cwd, env=env, capture_output=True, text=True)
         return result
 
     def test_01_initialization(self):
@@ -181,6 +182,66 @@ class TestDeepResearchRuntime(unittest.TestCase):
         res = self.run_drs(["transition", "1", "2"])
         self.assertNotEqual(res.returncode, 0)
         self.assertIn("Workflow execution blocked: Invalid transitions.yaml", res.stderr)
+
+    def test_08_advanced_control_flow(self):
+        # 1. Test invalid arguments during init fails before writing
+        res_fail = self.run_drs(["init", "--total-minutes", "-10"])
+        self.assertNotEqual(res_fail.returncode, 0)
+        self.assertIn("Validation Error", res_fail.stderr + res_fail.stdout)
+        
+        res_fail_pct = self.run_drs(["init", "--research-percent", "150"])
+        self.assertNotEqual(res_fail_pct.returncode, 0)
+        self.assertIn("Validation Error", res_fail_pct.stderr + res_fail_pct.stdout)
+
+        # 2. Test sprint mode escape transition to Phase 7
+        self.run_drs(["init"])
+        state_path = os.path.join(self.test_dir, ".deep-research", "session-state.json")
+        with open(state_path, "r") as f:
+            state = json.load(f)
+        state["current_mode"] = "sprint"
+        with open(state_path, "w") as f:
+            json.dump(state, f)
+        
+        # In sprint mode, transition from 1 -> 2 is blocked (requires research)
+        res_block = self.run_drs(["transition", "1", "2"])
+        self.assertNotEqual(res_block.returncode, 0)
+        
+        # But emergency/sprint bypass transition directly from Phase 4 to Phase 7 is allowed!
+        # First transition 1 -> 2 -> 3 -> 3.5 -> 4 (requires resetting mode to explore first)
+        with open(state_path, "r") as f:
+            state = json.load(f)
+        state["current_mode"] = "explore"
+        with open(state_path, "w") as f:
+            json.dump(state, f)
+            
+        self.run_drs(["transition", "1", "2"])
+        self.run_drs(["transition", "2", "3"])
+        self.run_drs(["transition", "3", "3.5"])
+        self.run_drs(["transition", "3.5", "4"])
+        
+        # Set to sprint mode at phase 4
+        with open(state_path, "r") as f:
+            state = json.load(f)
+        state["current_mode"] = "sprint"
+        with open(state_path, "w") as f:
+            json.dump(state, f)
+            
+        # Sprint escape transition 4 -> 7
+        res_escape = self.run_drs(["transition", "4", "7"])
+        self.assertEqual(res_escape.returncode, 0, res_escape.stderr)
+        self.assertIn("Workflow advanced. Current phase: 7", res_escape.stdout)
+
+        # 3. Test halt emergency transition to Phase 10 from any phase
+        with open(state_path, "r") as f:
+            state = json.load(f)
+        state["current_mode"] = "halt"
+        with open(state_path, "w") as f:
+            json.dump(state, f)
+            
+        # Emergency transition directly to 10 is approved even if current phase is 7 (not normally allowed 7 -> 10)
+        res_halt = self.run_drs(["transition", "7", "10"])
+        self.assertEqual(res_halt.returncode, 0, res_halt.stderr)
+        self.assertIn("Workflow advanced. Current phase: 10", res_halt.stdout)
 
 if __name__ == "__main__":
     unittest.main()

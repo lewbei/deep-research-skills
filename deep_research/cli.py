@@ -45,12 +45,20 @@ def drs_init(args):
     if state.ledger:
         state.ledger[0].start_iso = state.started_at
         state.ledger[0].end_iso = None
-    state.budget.total_minutes = args.total_minutes
-    state.budget.kind = args.kind
-    state.budget.research_percent = args.research_percent
-    state.budget.execution_percent = 100 - args.research_percent
-    state.current_mode = "explore"
-    
+        
+    try:
+        state.budget = BudgetConfig(
+            total_minutes=args.total_minutes,
+            kind=args.kind,
+            research_percent=args.research_percent,
+            execution_percent=100 - args.research_percent
+        )
+        state.current_mode = "explore"
+        state.__post_init__()
+    except Exception as e:
+        print(f"Validation Error: {e}", file=sys.stderr)
+        sys.exit(1)
+        
     save_session_state(workspace, state)
     print(f"Initialized Deep Research session (UUID: {state.session_id})")
     
