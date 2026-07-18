@@ -1,7 +1,6 @@
 ---
 name: deep-dive
 description: Subagent skill — bounded deep-dive into a specific approach, paper, or codebase. Answers one narrow question at a chosen depth and returns a subagent-summary.md.
-subagent: true
 allowed-tools:
   - read
   - grep
@@ -102,7 +101,7 @@ For `full-mechanism`, return the full `mechanism.md` sections (Source, Architect
 
 ## Claim set for verifier (required for P0/P1 unknowns)
 
-When answering a P0/P1 unknown, also return a structured claim set that the orchestrator can pass to `/deep-research:verify`:
+When answering a P0/P1 unknown, also return a structured claim set that the orchestrator can pass to `@skills:verify`:
 
 ```yaml
 unknown_id: "U<id>"

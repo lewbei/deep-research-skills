@@ -1,7 +1,6 @@
 ---
 name: verify
 description: Subagent skill — independently re-read a primary source and verify that a set of claims is supported, contradicted, or not present. Flags hallucinations and source-claim misalignment.
-subagent: true
 allowed-tools:
   - read
   - grep

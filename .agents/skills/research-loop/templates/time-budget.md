@@ -5,7 +5,7 @@ Single source of truth for the research/execution budget, elapsed consumption, a
 ## Budget definition
 
 - **Total budget (T):** the user-facing time limit for this task.
-- **Budget unit:** wall-clock minutes since the first invocation of `/deep-research:research-loop` for this task.
+- **Budget unit:** wall-clock minutes since the first invocation of `@skills:research-loop` for this task.
 - **Budget kind:** `hard` (must stop by T) | `soft` (target T, may escalate/negotiate).
 - **Research allocation (R):** percentage of T reserved for Phases 1-6 (research).
 - **Execution allocation (E):** percentage of T reserved for Phases 7-9 (execute/learn).

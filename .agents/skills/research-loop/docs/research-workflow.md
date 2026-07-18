@@ -5,10 +5,10 @@ A standalone workflow for competition, hackathon, and research-heavy tasks. The 
 This is an **interleaved loop**, not upfront-then-execute:
 
 ```
-research → do 1 step → research → do 1 step → research → do 1 step → ...
+research → do 1 bounded unit of work → research → do 1 bounded unit of work → ...
 ```
 
-The `/deep-research:research-loop` skill calls this document. It also works standalone — any agent or human can follow it without the skill.
+The `@skills:research-loop` skill calls this document. It also works standalone — any agent or human can follow it without the skill.
 
 ---
 
@@ -100,7 +100,7 @@ Phase 1: Extract goal & constraints (once)
   │  → from the highest-priority hypothesis branch           │
   │  → define the step, its success criterion, kill criterion │
   │                                                          │
-  │  8. Execute 1 step                                       │
+  │  8. Execute 1 bounded unit of work                       │
   │  → implement, test, measure                              │
   │  → record results                                        │
   │                                                          │
@@ -159,14 +159,14 @@ Phase 1: Extract goal & constraints (once)
 
 1. **Check budget:** record the start of this phase in `time-budget.md`. If elapsed budget > 25% and this phase has not completed, escalate via `human-escalation-policy.md` (trigger P1/P6).
 
-2. **Leaderboard scan:** run `/deep-research:landscape-scan` with scope `competition-surface` and budget envelope (8 min, 6 sources, 250 words).
+2. **Leaderboard scan:** run `@skills:landscape-scan` with scope `competition-surface` and budget envelope (8 min, 6 sources, 250 words).
    - Near top → STRETCH. Near median → ACHIEVABLE. Above top → UNACHIEVABLE. No leaderboard → UNKNOWN.
 
-3. **Prior-solution scan:** run `/deep-research:landscape-scan` with scope `public-code` and budget envelope (10 min, 8 sources, 300 words).
+3. **Prior-solution scan:** run `@skills:landscape-scan` with scope `public-code` and budget envelope (10 min, 8 sources, 300 words).
    - For each: extract score, approach, model, training, compute, time.
    - Record in `landscape-table.md`.
 
-4. **Writeup scan (optional):** run `/deep-research:landscape-scan` with scope `writeups-papers` and budget envelope (10 min, 6 sources, 300 words) if research budget allows.
+4. **Writeup scan (optional):** run `@skills:landscape-scan` with scope `writeups-papers` and budget envelope (10 min, 6 sources, 300 words) if research budget allows.
 
 5. **Verdict:** ACHIEVABLE / STRETCH / UNACHIEVABLE / UNKNOWN.
    - Mark the "Is 1250 Elo achievable?" unknown as `answered` in the registry with the verdict + evidence.
@@ -263,7 +263,7 @@ This is the core of the workflow. Each iteration is one pass through steps 3.5-9
 
 3. **Invoke the verifier for P0/P1 unknowns before committing:**
    - Extract the `claim_set` from the deep-dive or landscape-scan output (the YAML block with `claim_id`, `claim_text`, `original_evidence`, `claim_type` for each claim).
-   - Call `/deep-research:verify` with the source, `unknown_id`, `claim_set`, `verdict_type: pre-commit`, and a budget (e.g., 10 minutes, source only).
+   - Call `@skills:verify` with the source, `unknown_id`, `claim_set`, `verdict_type: pre-commit`, and a budget (e.g., 10 minutes, source only).
    - If verifier returns `aligned` or `minor-drift`, record the `Verifier verdict` in `unknowns-registry.md` and proceed.
    - If `major-drift` or `inconclusive`, record the verdict, downgrade the unknown, create a follow-up unknown if needed, and do not commit.
 
@@ -337,7 +337,7 @@ This is the core of the workflow. Each iteration is one pass through steps 3.5-9
 
 ---
 
-### Phase 8: Execute 1 step
+### Phase 8: Execute 1 bounded unit of work
 
 **Input:** The step from Phase 7 + `probe-registry.md` with pending probes.
 
@@ -374,8 +374,8 @@ This is the core of the workflow. Each iteration is one pass through steps 3.5-9
 
 2. **Update proxy-log.md:**
    - Record the new proxy value and true outcome for this step.
-   - If at least 3 paired observations exist, compute Spearman correlation.
-   - Promote proxy from `candidate` to `validated` if |ρ| ≥ 0.7 and sign matches intended direction.
+   - If at least 5 paired observations exist, compute Spearman correlation (keep as candidate/provisional if fewer than 5 observations).
+   - Promote proxy from `candidate` to `validated` if |ρ| ≥ 0.7, sample size ≥ 5, and sign matches intended direction.
    - Mark proxy `degraded` if 0.4 ≤ |ρ| < 0.7 or if one observation shows proxy gain ≥20% with true outcome gain <5% (or opposite).
    - Mark proxy `rejected` if |ρ| < 0.4 or sign is wrong.
    - A `degraded` proxy requires recalibration or a new proxy before the next P0/P1 decision.

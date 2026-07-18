@@ -1,7 +1,6 @@
 ---
 name: landscape-scan
 description: Subagent skill — scoped, bounded scan of a competition or research landscape. Returns a concise subagent-summary.md for the orchestrator to integrate.
-subagent: true
 allowed-tools:
   - read
   - grep

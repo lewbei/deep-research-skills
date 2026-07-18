@@ -1,6 +1,6 @@
 ---
 name: research-loop
-description: Iterative deep-research loop for competition and research-heavy tasks. Research → execute 1 step → research → execute 1 step. Reads the unknowns registry each round.
+description: Iterative deep-research loop for competition and research-heavy tasks. Research → execute 1 bounded, falsifiable unit of work → research → execute... Reads the unknowns registry each round.
 argument-hint: "[objective]"
 triggers:
   - user
@@ -41,11 +41,11 @@ Each iteration:
 
 2. **Check `unknowns-registry.md`** — pick the highest-priority open unknown that blocks a decision, respecting the current mode.
 
-3. **Research it** — use `/deep-research:landscape-scan` (scoped, bounded) or `/deep-research:deep-dive` (bounded depth) to investigate. Pass an explicit budget envelope. Update the registry with the answer and verifier verdict.
+3. **Research it** — use `@skills:landscape-scan` (scoped, bounded) or `@skills:deep-dive` (bounded depth) to investigate. Pass an explicit budget envelope. Update the registry with the answer and verifier verdict.
 
 4. **Invoke verifier for P0/P1 unknowns** before marking `verified`:
    - Extract the `claim_set` from the deep-dive or landscape-scan output.
-   - Call `/deep-research:verify` with the source, `unknown_id`, `claim_set`, `verdict_type: pre-commit`, and a budget.
+   - Call `@skills:verify` with the source, `unknown_id`, `claim_set`, `verdict_type: pre-commit`, and a budget.
    - If verifier returns `aligned` or `minor-drift`, record the verifier verdict and proceed.
    - If `major-drift` or `inconclusive`, downgrade the unknown, record the verdict, create a follow-up unknown if needed, and do not commit.
 
@@ -53,7 +53,7 @@ Each iteration:
 
 6. **Pick the next execution step (Phase 7)** — from the highest-priority hypothesis branch (≥MEDIUM confidence, acceptable cost). Write the abstract alignment sentence, define the concrete step, set success / kill criteria, and define a process reward proxy. Check `human-escalation-policy.md` preventive triggers. Populate `mega-plan.md` with the concrete step.
 
-7. **Execute 1 step** — run pending probes first, then implement, test, measure. Record results in `proxy-log.md`.
+7. **Execute 1 bounded unit of work** — run pending probes first, then implement, test, measure. Record results in `proxy-log.md`.
 
 8. **Learn** — update proxy correlation, hypothesis tree, unknowns registry, decision log. Decide: continue loop, switch approach, escalate, or done?
 
@@ -69,7 +69,7 @@ Each iteration:
 
 - **You are the only writer.** Subagents (`landscape-scan`, `deep-dive`, `verify`) are read-only. Integrate their outputs into artifacts yourself.
 - **Always update `unknowns-registry.md`** when a new unknown is discovered or an existing one is answered.
-- **Execute only 1 step per loop iteration.** Do not batch multiple steps.
+- **Execute only 1 bounded, falsifiable unit of work per loop iteration.** Do not batch unrelated experiments, but allow related tests/measurements to remain in one atomic experiment.
 - **Use bounded subagents for research.** Pass explicit budget envelopes (wall time, max sources, max output words, max probes).
 - **Record everything.** If an unknown is discovered during execution and not recorded, it will be lost.
 - **Prefer primary sources.** Follow claims to the paper, code, or documentation that owns them.
