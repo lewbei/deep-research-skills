@@ -1,50 +1,17 @@
-#!/usr/bin/env python3
 import os
-import sys
-import json
 import re
-import tempfile
 from datetime import datetime
+from deep_research.models import SessionState
+from deep_research.storage import save_session_state, atomic_write_text
 
-def atomic_write_json(file_path, data):
-    dir_name = os.path.dirname(os.path.abspath(file_path))
-    os.makedirs(dir_name, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as f:
-        temp_name = f.name
-        json.dump(data, f, indent=2)
-    os.replace(temp_name, file_path)
-
-def atomic_write_text(file_path, content):
-    dir_name = os.path.dirname(os.path.abspath(file_path))
-    os.makedirs(dir_name, exist_ok=True)
-    with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as f:
-        temp_name = f.name
-        f.write(content)
-    os.replace(temp_name, file_path)
-
-def main():
-    workspace = os.getcwd()
-    state_path = os.path.join(workspace, ".deep-research", "session-state.json")
-    time_budget_path = os.path.join(workspace, "time-budget.md")
-    
-    if not os.path.exists(state_path):
-        print(f"Error: State file not found at {state_path}", file=sys.stderr)
-        sys.exit(1)
-        
-    try:
-        with open(state_path, "r") as f:
-            state_data = json.load(f)
-    except Exception as e:
-        print(f"Error reading session-state JSON: {e}", file=sys.stderr)
-        sys.exit(1)
-        
-    started_at = datetime.fromisoformat(state_data["started_at"].replace("Z", "+00:00"))
+def calculate_time_budget(workspace: str, state: SessionState) -> str:
+    started_at = datetime.fromisoformat(state.started_at.replace("Z", "+00:00"))
     now = datetime.now(started_at.tzinfo)
     
     elapsed_minutes = (now - started_at).total_seconds() / 60.0
-    total_minutes = state_data["budget"]["total_minutes"]
-    research_percent = state_data["budget"]["research_percent"]
-    execution_percent = state_data["budget"]["execution_percent"]
+    total_minutes = state.budget.total_minutes
+    research_percent = state.budget.research_percent
+    execution_percent = state.budget.execution_percent
     
     research_budget = total_minutes * (research_percent / 100.0)
     execution_budget = total_minutes * (execution_percent / 100.0)
@@ -54,20 +21,19 @@ def main():
     # Calculate research/execution elapsed based on the ledger categories
     research_elapsed = 0.0
     execution_elapsed = 0.0
-    for entry in state_data.get("ledger", []):
-        duration = entry.get("duration_minutes", 0)
-        if entry.get("category") == "research":
+    for entry in state.ledger:
+        duration = entry.duration_minutes
+        if entry.category == "research":
             research_elapsed += duration
-        elif entry.get("category") == "execution":
+        elif entry.category == "execution":
             execution_elapsed += duration
             
     # Include current running duration in the active category
-    if state_data.get("ledger"):
-        last_entry = state_data["ledger"][-1]
-        # If the last entry has not finished, we can add the current delta
-        if last_entry.get("end_iso") is None:
-            delta = (now - datetime.fromisoformat(last_entry["start_iso"].replace("Z", "+00:00"))).total_seconds() / 60.0
-            if last_entry.get("category") == "research":
+    if state.ledger:
+        last_entry = state.ledger[-1]
+        if last_entry.end_iso is None:
+            delta = (now - datetime.fromisoformat(last_entry.start_iso.replace("Z", "+00:00"))).total_seconds() / 60.0
+            if last_entry.category == "research":
                 research_elapsed += delta
             else:
                 execution_elapsed += delta
@@ -92,24 +58,24 @@ def main():
         mode = "explore"
         recommendation = "Normal operation. Investigate P0-P2 unknowns; research allowed."
         
-    state_data["current_mode"] = mode
-    state_data["last_updated_at"] = now.isoformat() + "Z"
+    state.current_mode = mode
+    state.last_updated_at = now.isoformat() + "Z"
     
     # Update thresholds
     for threshold in ["25", "50", "75", "90", "100"]:
         if elapsed_pct >= float(threshold):
-            state_data["thresholds_reached"][threshold] = True
+            state.thresholds_reached[threshold] = True
             
-    # Save session state atomically
-    atomic_write_json(state_path, state_data)
-        
+    # Save session state
+    save_session_state(workspace, state)
+    
     # Update time-budget.md markdown file if exists
+    time_budget_path = os.path.join(workspace, "time-budget.md")
     if os.path.exists(time_budget_path):
         try:
-            with open(time_budget_path, "r") as f:
+            with open(time_budget_path, "r", encoding="utf-8") as f:
                 content = f.read()
                 
-            # Replace current state details
             content = re.sub(
                 r"- \*\*Elapsed:\*\* .*?\n",
                 f"- **Elapsed:** {elapsed_minutes:.1f} min ({elapsed_pct:.1f}% of T)\n",
@@ -136,17 +102,12 @@ def main():
                 content
             )
             
-            # Check off thresholds in the log
             for threshold in ["25", "50", "75", "90", "100"]:
-                if state_data["thresholds_reached"][threshold]:
+                if state.thresholds_reached[threshold]:
                     content = content.replace(f"- [ ] {threshold}%", f"- [x] {threshold}%")
             
-            # Write time-budget.md atomically
             atomic_write_text(time_budget_path, content)
-                
-            print(f"Updated time budget in {time_budget_path} (Mode: {mode}, Elapsed: {elapsed_minutes:.1f} min)")
         except Exception as e:
-            print(f"Error updating time-budget.md: {e}", file=sys.stderr)
+            return f"Error updating time-budget.md: {e}"
             
-if __name__ == "__main__":
-    main()
+    return f"Updated time budget. Mode: {mode}, Elapsed: {elapsed_minutes:.1f} min"

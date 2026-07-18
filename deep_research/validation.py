@@ -1,22 +1,18 @@
-#!/usr/bin/env python3
 import os
-import sys
 import re
+from typing import Dict, List, Tuple
 
-def validate_frontmatter(skill_path):
+def validate_frontmatter(skill_path: str) -> Tuple[bool, str]:
     if not os.path.exists(skill_path):
-        print(f"SKILL missing: {skill_path}")
-        return False
+        return False, f"SKILL file missing: {skill_path}"
         
     try:
         with open(skill_path, "r", encoding="utf-8") as f:
             content = f.read()
             
-        # Parse YAML frontmatter
         match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
         if not match:
-            print(f"Error: {skill_path} is missing standard frontmatter delimiter.")
-            return False
+            return False, "Missing standard frontmatter delimiter (---)."
             
         yaml_content = match.group(1)
         required_keys = ["name", "description"]
@@ -26,20 +22,16 @@ def validate_frontmatter(skill_path):
                 missing.append(key)
                 
         if missing:
-            print(f"Error: {skill_path} frontmatter missing keys: {missing}")
-            return False
+            return False, f"Frontmatter missing keys: {missing}"
             
-        print(f"Frontmatter OK: {skill_path}")
-        return True
+        return True, "Frontmatter OK"
     except Exception as e:
-        print(f"Error reading {skill_path}: {e}")
-        return False
+        return False, f"Error reading {skill_path}: {e}"
 
-def validate_artifact(workspace, filename, expected_headers):
+def validate_artifact(workspace: str, filename: str, expected_headers: List[str]) -> Tuple[bool, str]:
     path = os.path.join(workspace, filename)
     if not os.path.exists(path):
-        print(f"Artifact missing: {filename}")
-        return False
+        return False, f"Artifact missing: {filename}"
         
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -51,21 +43,14 @@ def validate_artifact(workspace, filename, expected_headers):
                 missing_headers.append(header)
                 
         if missing_headers:
-            print(f"Error: {filename} missing expected sections/headers: {missing_headers}")
-            return False
+            return False, f"{filename} missing expected headers: {missing_headers}"
             
-        print(f"Artifact OK: {filename}")
-        return True
+        return True, f"Artifact OK: {filename}"
     except Exception as e:
-        print(f"Error validating {filename}: {e}")
-        return False
+        return False, f"Error validating {filename}: {e}"
 
-def main():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(script_dir)
-    workspace = os.getcwd()
-    
-    success = True
+def validate_session_workspace(workspace: str, project_root: str) -> Tuple[bool, List[str]]:
+    errors = []
     
     # 1. Validate skills frontmatter
     skills_dir = os.path.join(project_root, ".agents", "skills")
@@ -73,10 +58,11 @@ def main():
         for skill_name in os.listdir(skills_dir):
             skill_p = os.path.join(skills_dir, skill_name, "SKILL.md")
             if os.path.exists(skill_p):
-                if not validate_frontmatter(skill_p):
-                    success = False
+                ok, msg = validate_frontmatter(skill_p)
+                if not ok:
+                    errors.append(f"{skill_name} skill error: {msg}")
                     
-    # 2. Validate workspace artifacts if initialized
+    # 2. Validate workspace artifacts
     state_path = os.path.join(workspace, ".deep-research", "session-state.json")
     if os.path.exists(state_path):
         artifacts = {
@@ -90,16 +76,10 @@ def main():
         }
         
         for filename, headers in artifacts.items():
-            if not validate_artifact(workspace, filename, headers):
-                success = False
+            ok, msg = validate_artifact(workspace, filename, headers)
+            if not ok:
+                errors.append(msg)
     else:
-        print("Note: Session not initialized in current directory. Skipping workspace artifact checks.")
+        errors.append("Session state not initialized in this workspace directory.")
         
-    if not success:
-        print("Validation FAILED.", file=sys.stderr)
-        sys.exit(1)
-        
-    print("All validations PASSED successfully.")
-
-if __name__ == "__main__":
-    main()
+    return len(errors) == 0, errors

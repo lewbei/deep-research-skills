@@ -33,27 +33,36 @@ def main():
                 shutil.copytree(src_path, dst_path)
                 print(f"Installed skill: {skill_name}")
             
-    # Copy scripts to target workspace (optional, but convenient)
-    src_scripts = os.path.realpath(os.path.join(script_dir, "scripts"))
-    dst_scripts = os.path.realpath(os.path.join(workspace, "scripts"))
+    # Copy deep_research python package
+    src_package = os.path.realpath(os.path.join(script_dir, "deep_research"))
+    dst_package = os.path.realpath(os.path.join(workspace, "deep_research"))
     
-    if src_scripts == dst_scripts:
-        print("Source and destination scripts directory are the same. Skipping script files copy.")
-    elif os.path.exists(src_scripts):
-        os.makedirs(dst_scripts, exist_ok=True)
-        for script_file in os.listdir(src_scripts):
-            src_f = os.path.join(src_scripts, script_file)
-            dst_f = os.path.join(dst_scripts, script_file)
-            shutil.copy2(src_f, dst_f)
-        print("Installed supporting control scripts to scripts/")
+    if src_package == dst_package:
+        print("Source and destination package directory are the same. Skipping package copy.")
+    elif os.path.exists(src_package):
+        if os.path.exists(dst_package):
+            shutil.rmtree(dst_package)
+        shutil.copytree(src_package, dst_package)
+        print("Installed unified runtime package to deep_research/")
+        
+    # Copy drs executable wrapper
+    src_drs = os.path.realpath(os.path.join(script_dir, "drs"))
+    dst_drs = os.path.realpath(os.path.join(workspace, "drs"))
+    
+    if src_drs == dst_drs:
+        print("Source and destination drs binary are the same. Skipping binary copy.")
+    elif os.path.exists(src_drs):
+        shutil.copy2(src_drs, dst_drs)
+        os.chmod(dst_drs, 0o755)
+        print("Installed drs executable CLI tool.")
         
     print("\nInstallation complete! You can now use the following skills:")
     print("  - @skills:research-loop")
     print("  - @skills:landscape-scan")
     print("  - @skills:deep-dive")
     print("  - @skills:verify")
-    print("\nTo start a session, run:")
-    print("  python3 scripts/initialize_session.py --total-minutes 120")
+    print("\nTo start a session, run the CLI:")
+    print("  ./drs init --total-minutes 120")
 
 if __name__ == "__main__":
     main()

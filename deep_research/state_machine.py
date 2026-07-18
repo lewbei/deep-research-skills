@@ -1,0 +1,83 @@
+import os
+import sys
+import yaml
+from datetime import datetime
+from typing import Dict, List
+from deep_research.models import SessionState, LedgerEntry
+from deep_research.storage import save_session_state
+
+DEFAULT_TRANSITIONS = {
+    "1": ["2"],
+    "2": ["3"],
+    "3": ["3.5"],
+    "3.5": ["4"],
+    "4": ["5", "7"],
+    "5": ["6"],
+    "6": ["7"],
+    "7": ["4", "8"],
+    "8": ["9"],
+    "9": ["3.5", "10"],
+    "10": []
+}
+
+def load_graph_transitions(workspace: str) -> Dict[str, List[str]]:
+    custom_path = os.path.join(workspace, ".deep-research", "transitions.yaml")
+    if os.path.exists(custom_path):
+        try:
+            with open(custom_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+                if isinstance(data, dict) and "phases" in data:
+                    transitions = {}
+                    for phase, cfg in data["phases"].items():
+                        transitions[str(phase)] = [str(t) for t in cfg.get("transitions", [])]
+                    return transitions
+        except Exception as e:
+            print(f"Warning: Failed to load custom transitions.yaml: {e}", file=sys.stderr)
+    return DEFAULT_TRANSITIONS
+
+def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str) -> str:
+    # 1. Load transitions map
+    transitions = load_graph_transitions(workspace)
+    
+    # 2. Get current phase
+    current_phase = "1"
+    if state.ledger:
+        current_phase = str(state.ledger[-1].phase)
+        # Handle float representation formatting e.g. "3.5" vs "3"
+        if current_phase.endswith(".0"):
+            current_phase = current_phase[:-2]
+            
+    if current_phase != from_p:
+        raise ValueError(f"Current phase is {current_phase}, but requested transition is from {from_p}.")
+        
+    allowed = transitions.get(from_p, [])
+    if to_p not in allowed:
+        raise ValueError(f"Transition from Phase {from_p} to Phase {to_p} is not allowed by the workflow graph schema.")
+        
+    # 3. Approve transition and update ledger
+    now_str = datetime.utcnow().isoformat() + "Z"
+    if state.ledger:
+        last_entry = state.ledger[-1]
+        if last_entry.end_iso is None:
+            last_entry.end_iso = now_str
+            start_t = datetime.fromisoformat(last_entry.start_iso.replace("Z", "+00:00"))
+            end_t = datetime.fromisoformat(now_str.replace("Z", "+00:00"))
+            last_entry.duration_minutes = (end_t - start_t).total_seconds() / 60.0
+            
+    # Add new phase entry to ledger
+    new_iteration = state.ledger[-1].iteration + 1 if state.ledger else 0
+    new_phase_val = float(to_p) if "." in to_p else int(to_p)
+    category = "research" if to_p in ["1", "2", "3", "3.5", "4", "5", "6"] else "execution"
+    
+    new_entry = LedgerEntry(
+        iteration=new_iteration,
+        phase=new_phase_val,
+        start_iso=now_str,
+        category=category,
+        mode=state.current_mode
+    )
+    state.ledger.append(new_entry)
+    state.last_updated_at = now_str
+    
+    save_session_state(workspace, state)
+    return f"Workflow advanced. Current phase: {to_p}"
