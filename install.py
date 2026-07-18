@@ -62,7 +62,7 @@ def main():
     print("  - @skills:deep-dive")
     print("  - @skills:verify")
     print("\nTo start a session, run the CLI:")
-    print("  ./drs init --total-minutes 120")
+    print("  drs init --total-minutes 120")
 
 if __name__ == "__main__":
     main()

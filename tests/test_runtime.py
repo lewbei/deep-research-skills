@@ -250,5 +250,85 @@ class TestDeepResearchRuntime(unittest.TestCase):
         res_val2 = self.run_drs(["validate"])
         self.assertEqual(res_val2.returncode, 0, res_val2.stderr)
 
+    def test_09_regression_tests(self):
+        # 1. Halt mode bypass when exit gate artifact is missing
+        self.run_drs(["init"])
+        state_path = os.path.join(self.test_dir, ".deep-research", "session-state.json")
+        
+        # Delete required artifact for phase 1 (unknowns-registry.md)
+        os.remove(os.path.join(self.test_dir, "unknowns-registry.md"))
+        
+        # In explore mode, transition fails because artifact is missing
+        res_fail_gate = self.run_drs(["transition", "1", "2"])
+        self.assertNotEqual(res_fail_gate.returncode, 0)
+        self.assertIn("Phase exit requirement missing", res_fail_gate.stderr)
+        
+        # Set mode to halt
+        with open(state_path, "r") as f:
+            state = json.load(f)
+        state["current_mode"] = "halt"
+        with open(state_path, "w") as f:
+            json.dump(state, f)
+            
+        # In halt mode, transition from 1 -> 10 succeeds even though artifact is missing!
+        res_halt_gate = self.run_drs(["transition", "1", "10"])
+        self.assertEqual(res_halt_gate.returncode, 0, res_halt_gate.stderr)
+
+        # 2. Incorrect from_p during halt fails
+        self.run_drs(["init"])
+        with open(state_path, "r") as f:
+            state = json.load(f)
+        state["current_mode"] = "halt"
+        with open(state_path, "w") as f:
+            json.dump(state, f)
+        # Attempt halt transition from incorrect phase 2 (actual current phase is 1)
+        res_wrong_from = self.run_drs(["transition", "2", "10"])
+        self.assertNotEqual(res_wrong_from.returncode, 0)
+        self.assertIn("requested transition is from 2", res_wrong_from.stderr)
+
+        # 3. Custom YAML numeric phase normalization and collision check
+        self.run_drs(["init"])
+        yaml_dir = os.path.join(self.test_dir, ".deep-research")
+        os.makedirs(yaml_dir, exist_ok=True)
+        yaml_path = os.path.join(yaml_dir, "transitions.yaml")
+        
+        # Custom YAML with floats as keys/targets
+        with open(yaml_path, "w") as f:
+            f.write("phases:\n  1.0:\n    category: research\n    transitions: [2.0]\n  2.0:\n    category: execution\n    transitions: []\n")
+            
+        # Normal transition 1 -> 2 should work under float normalization
+        res_norm = self.run_drs(["transition", "1", "2"])
+        self.assertEqual(res_norm.returncode, 0, res_norm.stderr)
+        
+        # Custom YAML collision check: defining both '2' and '2.0' as strings (fails load due to collision)
+        with open(yaml_path, "w") as f:
+            f.write("phases:\n  '1':\n    category: research\n    transitions: []\n  '2':\n    category: research\n    transitions: []\n  '2.0':\n    category: execution\n    transitions: []\n")
+        res_collision = self.run_drs(["transition", "1", "2"])
+        self.assertNotEqual(res_collision.returncode, 0)
+        self.assertIn("duplicate normalized phase keys", res_collision.stderr + res_collision.stdout)
+        
+        # Clean up custom YAML to prevent pollution in subsequent tests
+        os.remove(yaml_path)
+
+        # 4. Null ledger phase fails load
+        with open(state_path, "r") as f:
+            state = json.load(f)
+        state["ledger"][0]["phase"] = None
+        with open(state_path, "w") as f:
+            json.dump(state, f)
+        res_null = self.run_drs(["status"])
+        self.assertNotEqual(res_null.returncode, 0)
+        self.assertIn("missing phase attribute", res_null.stderr + res_null.stdout)
+
+        # 5. CRLF line endings frontmatter verification
+        self.run_drs(["init"])
+        skill_dir = os.path.join(self.test_dir, ".agents", "skills", "mock_skill")
+        os.makedirs(skill_dir, exist_ok=True)
+        with open(os.path.join(skill_dir, "SKILL.md"), "wb") as f:
+            # Write frontmatter using CRLF (\r\n) line endings
+            f.write(b"---\r\nname: mock_skill\r\ndescription: Mock\r\n---\r\nContent\r\n")
+        res_crlf = self.run_drs(["validate"])
+        self.assertEqual(res_crlf.returncode, 0, res_crlf.stderr)
+
 if __name__ == "__main__":
     unittest.main()

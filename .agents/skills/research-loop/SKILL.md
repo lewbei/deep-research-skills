@@ -8,38 +8,38 @@ triggers:
 ---
 
 You are running an **interleaved research-and-execute loop**. The full process is in `.agents/skills/research-loop/docs/research-workflow.md` in the plugin directory — read it now if you haven't this session.
-You MUST use the `./drs` CLI tool to initialize, track, and validate all workflow state transitions.
+You MUST use the `drs` CLI tool to initialize, track, and validate all workflow state transitions.
 
 ## Your job
 
 1. **If this is the first invocation** (no `unknowns-registry.md` exists yet):
    - **Initialize the session using the CLI:**
-     Run `./drs init --total-minutes <minutes> --kind <hard/soft>`
+     Run `drs init --total-minutes <minutes> --kind <hard/soft>`
      This automatically instantiates the state directory and populates all compliant templates.
    - Run Phase 1 (extract goal & constraints; write to `unknowns-registry.md`, `time-budget.md`, etc.).
-   - Advance phase via `./drs transition 1 2` to run Phase 2 (validate feasibility — bounded landscape scans).
-   - Advance phase via `./drs transition 2 3` to run Phase 3 (broad research sweep — map the landscape).
-   - Advance phase via `./drs transition 3 3.5` to enter the loop at Phase 3.5 (Budget Checkpoint).
+   - Advance phase via `drs transition 1 2` to run Phase 2 (validate feasibility — bounded landscape scans).
+   - Advance phase via `drs transition 2 3` to run Phase 3 (broad research sweep — map the landscape).
+   - Advance phase via `drs transition 3 3.5` to enter the loop at Phase 3.5 (Budget Checkpoint).
 
 2. **If artifacts already exist** (loop is resuming):
    - Read `unknowns-registry.md`, `hypothesis-tree.md`, `decision-log.md`, `time-budget.md`, `proxy-log.md`, `human-escalation-policy.md`, `probe-registry.md`, `landscape-table.md`.
-   - Run `./drs status` to confirm the active state.
+   - Run `drs status` to confirm the active state.
    - Inspect the active phase, and resume execution from that exact phase. Never assume Phase 3.5.
 
 ## The loop (Phases 3.5-9)
 
-You must run `./drs transition <from> <to>` for all phase transitions. The state-machine enforces graph checks and restricts research phases depending on the budget mode.
+You must run `drs transition <from> <to>` for all phase transitions. The state-machine enforces graph checks and restricts research phases depending on the budget mode.
 
 Each iteration:
 
-1. **Budget checkpoint (Phase 3.5):** Run `./drs budget` to calculate elapsed pacing and transition budget modes. If a threshold is crossed, follow `time-budget.md` rules and escalate if needed.
-2. **Check `unknowns-registry.md` (Phase 4):** Transition via `./drs transition 3.5 4`. Pick the highest-priority open unknown that blocks a decision.
-3. **Research it (Phase 5):** Transition via `./drs transition 4 5`. Use `@skills:landscape-scan` or `@skills:deep-dive`. Run `@skills:verify` to audit all extracted claims for P0/P1 unknowns. Only transition to Phase 6 once verification returns `aligned` or `minor-drift` for all key claims.
-4. **Hypothesis validation (Phase 6):** Transition via `./drs transition 5 6`. Update `hypothesis-tree.md` branches. Ensure P0/P1 branches have a `proxy-log.md` entry.
-5. **Pick the next execution step (Phase 7):** Transition via `./drs transition 6 7` (or `./drs transition 4 7` if no new research was needed). Populate `mega-plan.md`.
-6. **Execute 1 bounded unit of work (Phase 8):** Transition via `./drs transition 7 8`. Execute the probe/code, implement, test, and measure. Record results.
-7. **Learn & Validate Proxies (Phase 9):** Transition via `./drs transition 8 9`. Run `./drs proxy <id> --add <val>:<true>` to calculate Spearman rank correlation and validate proxies.
-8. **Loop back or Conclude:** Run `./drs transition 9 3.5` to start a new loop iteration, or `./drs transition 9 10` to complete the session. Run `./drs validate` to ensure 100% schema compliance.
+1. **Budget checkpoint (Phase 3.5):** Run `drs budget` to calculate elapsed pacing and transition budget modes. If a threshold is crossed, follow `time-budget.md` rules and escalate if needed.
+2. **Check `unknowns-registry.md` (Phase 4):** Transition via `drs transition 3.5 4`. Pick the highest-priority open unknown that blocks a decision.
+3. **Research it (Phase 5):** Transition via `drs transition 4 5`. Use `@skills:landscape-scan` or `@skills:deep-dive`. Run `@skills:verify` to audit all extracted claims for P0/P1 unknowns. Only transition to Phase 6 once verification returns `aligned` or `minor-drift` for all key claims.
+4. **Hypothesis validation (Phase 6):** Transition via `drs transition 5 6`. Update `hypothesis-tree.md` branches. Ensure P0/P1 branches have a `proxy-log.md` entry.
+5. **Pick the next execution step (Phase 7):** Transition via `drs transition 6 7` (or `drs transition 4 7` if no new research was needed). Populate `mega-plan.md`.
+6. **Execute 1 bounded unit of work (Phase 8):** Transition via `drs transition 7 8`. Execute the probe/code, implement, test, and measure. Record results.
+7. **Learn & Validate Proxies (Phase 9):** Transition via `drs transition 8 9`. Run `drs proxy <id> --add <val>:<true>` to calculate Spearman rank correlation and validate proxies.
+8. **Loop back or Conclude:** Run `drs transition 9 3.5` to start a new loop iteration, or `drs transition 9 10` to complete the session. Run `drs validate` to ensure 100% schema compliance.
 
 ## When to stop the loop
 

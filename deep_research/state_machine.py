@@ -1,6 +1,7 @@
 import os
 import sys
 import yaml
+import re
 from datetime import datetime
 from typing import Dict, List, Set, Any
 from deep_research.models import SessionState, LedgerEntry
@@ -22,17 +23,25 @@ DEFAULT_PHASES = {
 
 RESEARCH_PHASES = {"1", "2", "3", "3.5", "4", "5", "6", "research", "feasibility", "landscape", "verify"}
 
-def normalize_phase_str(p: Any) -> str:
-    s = str(p)
-    if s.endswith(".0"):
-        return s[:-2]
-    return s
+def normalize_phase_str(value: Any) -> str:
+    text = str(value)
+    if re.fullmatch(r"-?\d+\.0", text):
+        return text[:-2]
+    return text
 
 def validate_graph_schema(phases_data: Dict[str, Any]):
     if not isinstance(phases_data, dict):
         raise ValueError("Root transitions config under 'phases' must be a dictionary mapping.")
         
-    all_phases = {normalize_phase_str(p) for p in phases_data.keys()}
+    # Check for normalized phase key collisions
+    normalized_keys = {}
+    for raw_phase in phases_data.keys():
+        norm_phase = normalize_phase_str(raw_phase)
+        if norm_phase in normalized_keys:
+            raise ValueError(f"Graph schema contains duplicate normalized phase keys: '{raw_phase}' and '{normalized_keys[norm_phase]}' both normalize to '{norm_phase}'.")
+        normalized_keys[norm_phase] = raw_phase
+        
+    all_phases = set(normalized_keys.keys())
     
     # Require initial phase "1" or "init" or custom defined initial phase
     if not any(p in all_phases for p in ["1", "init"]):
@@ -43,6 +52,21 @@ def validate_graph_schema(phases_data: Dict[str, Any]):
         if not isinstance(cfg, dict):
             raise ValueError(f"Phase config for '{phase_name}' must be a dictionary.")
             
+        # Validate category
+        category = cfg.get("category", "execution")
+        if category not in {"research", "execution"}:
+            raise ValueError(f"Phase '{phase_name}' category must be 'research' or 'execution', got '{category}'.")
+            
+        # Validate required artifacts schema
+        req_artifacts = cfg.get("required_artifacts", [])
+        if not isinstance(req_artifacts, list):
+            raise ValueError(f"required_artifacts for phase '{phase_name}' must be a list.")
+        for art in req_artifacts:
+            if not isinstance(art, str) or not art.strip():
+                raise ValueError(f"required_artifacts entries in phase '{phase_name}' must be non-empty strings.")
+            if os.path.isabs(art):
+                raise ValueError(f"required_artifacts entry '{art}' in phase '{phase_name}' must be a relative path.")
+                
         transitions = cfg.get("transitions", [])
         if not isinstance(transitions, list):
             raise ValueError(f"Transitions for phase '{phase_name}' must be a list of target strings. Got {type(transitions)}.")
@@ -114,12 +138,9 @@ def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str
     if state.ledger:
         current_phase = normalize_phase_str(state.ledger[-1].phase)
             
+    # Require the real current phase during transitions unconditionally (including halt mode)
     if current_phase != from_p:
-        # Emergency exception: allow termination from ANY phase if mode is 'halt'
-        if state.current_mode == "halt" and to_p == "10":
-            pass
-        else:
-            raise ValueError(f"Current phase is {current_phase}, but requested transition is from {from_p}.")
+        raise ValueError(f"Current phase is {current_phase}, but requested transition is from {from_p}.")
 
     # 3. Enforce budget modes during transitions
     if state.current_mode == "halt":
