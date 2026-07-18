@@ -3,7 +3,24 @@ import os
 import sys
 import json
 import re
+import tempfile
 from datetime import datetime
+
+def atomic_write_json(file_path, data):
+    dir_name = os.path.dirname(os.path.abspath(file_path))
+    os.makedirs(dir_name, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as f:
+        temp_name = f.name
+        json.dump(data, f, indent=2)
+    os.replace(temp_name, file_path)
+
+def atomic_write_text(file_path, content):
+    dir_name = os.path.dirname(os.path.abspath(file_path))
+    os.makedirs(dir_name, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as f:
+        temp_name = f.name
+        f.write(content)
+    os.replace(temp_name, file_path)
 
 def main():
     workspace = os.getcwd()
@@ -35,7 +52,6 @@ def main():
     elapsed_pct = (elapsed_minutes / total_minutes) * 100.0
     
     # Calculate research/execution elapsed based on the ledger categories
-    # In a simplified version, we attribute the elapsed time based on ratio or ledger records
     research_elapsed = 0.0
     execution_elapsed = 0.0
     for entry in state_data.get("ledger", []):
@@ -49,7 +65,7 @@ def main():
     if state_data.get("ledger"):
         last_entry = state_data["ledger"][-1]
         # If the last entry has not finished, we can add the current delta
-        if last_entry.get("end_iso") == "<ISO-8601>":
+        if last_entry.get("end_iso") is None:
             delta = (now - datetime.fromisoformat(last_entry["start_iso"].replace("Z", "+00:00"))).total_seconds() / 60.0
             if last_entry.get("category") == "research":
                 research_elapsed += delta
@@ -84,9 +100,8 @@ def main():
         if elapsed_pct >= float(threshold):
             state_data["thresholds_reached"][threshold] = True
             
-    # Save session state
-    with open(state_path, "w") as f:
-        json.dump(state_data, f, indent=2)
+    # Save session state atomically
+    atomic_write_json(state_path, state_data)
         
     # Update time-budget.md markdown file if exists
     if os.path.exists(time_budget_path):
@@ -126,8 +141,8 @@ def main():
                 if state_data["thresholds_reached"][threshold]:
                     content = content.replace(f"- [ ] {threshold}%", f"- [x] {threshold}%")
             
-            with open(time_budget_path, "w") as f:
-                f.write(content)
+            # Write time-budget.md atomically
+            atomic_write_text(time_budget_path, content)
                 
             print(f"Updated time budget in {time_budget_path} (Mode: {mode}, Elapsed: {elapsed_minutes:.1f} min)")
         except Exception as e:

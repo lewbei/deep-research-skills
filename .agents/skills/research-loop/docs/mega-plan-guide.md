@@ -1,6 +1,6 @@
 # Mega-Plan: A Planning and Deep-Research System
 
-> **Note:** This is a reference methodology document, not the project `mega-plan.md` implementation plan. The project implementation plan is created from `skills/research-loop/templates/mega-plan.md` and populated in Phase 7 of the research workflow.
+> **Note:** This is a reference methodology document, not the project `mega-plan.md` implementation plan. The project implementation plan is created from `.agents/skills/research-loop/templates/mega-plan.md` and populated in Phase 7 of the research workflow.
 
 ## 1. Core idea
 

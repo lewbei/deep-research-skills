@@ -3,34 +3,65 @@ import os
 import sys
 import json
 import re
+import tempfile
 
 def get_ranks(x):
     n = len(x)
-    temp = [(val, i) for i, val in enumerate(x)]
-    temp.sort()
-    ranks = [0] * n
+    sorted_pairs = sorted(enumerate(x), key=lambda pair: pair[1])
+    ranks = [0.0] * n
+    
     i = 0
     while i < n:
         j = i
-        while j < n and temp[j][0] == temp[i][0]:
+        while j < n and sorted_pairs[j][1] == sorted_pairs[i][1]:
             j += 1
-        # average rank for ties
-        mean_rank = (i + j + 1) / 2.0
+        
+        # Average rank for elements from index i to j-1 (1-based ranking)
+        total_ranks_sum = sum(range(i + 1, j + 1))
+        avg_rank = total_ranks_sum / (j - i)
+        
         for k in range(i, j):
-            ranks[temp[k][1]] = mean_rank
+            original_index = sorted_pairs[k][0]
+            ranks[original_index] = avg_rank
+        
         i = j
     return ranks
 
-def spearman_correlation(x, y):
+def pearson_correlation(x, y):
     n = len(x)
     if n < 2:
         return 0.0
+    mean_x = sum(x) / n
+    mean_y = sum(y) / n
+    
+    num = sum((x[i] - mean_x) * (y[i] - mean_y) for i in range(n))
+    den_x = sum((x[i] - mean_x) ** 2 for i in range(n))
+    den_y = sum((y[i] - mean_y) ** 2 for i in range(n))
+    
+    if den_x == 0.0 or den_y == 0.0:
+        return 0.0
+    return num / ((den_x * den_y) ** 0.5)
+
+def spearman_correlation(x, y):
     rx = get_ranks(x)
     ry = get_ranks(y)
-    
-    d2 = sum((rx[i] - ry[i]) ** 2 for i in range(n))
-    rho = 1.0 - (6.0 * d2) / (n * (n**2 - 1))
-    return rho
+    return pearson_correlation(rx, ry)
+
+def atomic_write_text(file_path, content):
+    dir_name = os.path.dirname(os.path.abspath(file_path))
+    os.makedirs(dir_name, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as f:
+        temp_name = f.name
+        f.write(content)
+    os.replace(temp_name, file_path)
+
+def atomic_write_json(file_path, data):
+    dir_name = os.path.dirname(os.path.abspath(file_path))
+    os.makedirs(dir_name, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as f:
+        temp_name = f.name
+        json.dump(data, f, indent=2)
+    os.replace(temp_name, file_path)
 
 def main():
     if len(sys.argv) < 2:
@@ -62,10 +93,8 @@ def main():
             p_val, t_val = map(float, val_str.split(":"))
             obs_data[proxy_id].append({"proxy": p_val, "true": t_val})
             
-            # Save observations
-            os.makedirs(os.path.dirname(obs_path), exist_ok=True)
-            with open(obs_path, "w") as f:
-                json.dump(obs_data, f, indent=2)
+            # Save observations atomically
+            atomic_write_json(obs_path, obs_data)
             print(f"Added observation for {proxy_id}: Proxy={p_val}, True={t_val}")
         except Exception as e:
             print(f"Error parsing --add value: {e}", file=sys.stderr)
@@ -111,7 +140,7 @@ def main():
             if match:
                 section_text = match.group(1)
                 
-                # Replace status, correlation strength, validation evidence
+                # Replace status, correlation strength, validation evidence robustly
                 new_section = re.sub(
                     r"- \*\*Status:\*\* (.*?)\n",
                     f"- **Status:** {status}\n",
@@ -132,8 +161,8 @@ def main():
                 
                 content = content.replace(match.group(0), f"### {proxy_id}:{new_section}")
                 
-                with open(proxy_log_path, "w") as f:
-                    f.write(content)
+                # Write proxy-log.md atomically
+                atomic_write_text(proxy_log_path, content)
                 print(f"Updated {proxy_log_path} for {proxy_id}")
             else:
                 print(f"Warning: Could not find section for {proxy_id} in {proxy_log_path}", file=sys.stderr)

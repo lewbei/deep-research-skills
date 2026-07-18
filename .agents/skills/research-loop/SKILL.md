@@ -7,23 +7,23 @@ triggers:
   - model
 ---
 
-You are running an **interleaved research-and-execute loop**. The full process is in `skills/research-loop/docs/research-workflow.md` in the plugin directory — read it now if you haven't this session.
+You are running an **interleaved research-and-execute loop**. The full process is in `.agents/skills/research-loop/docs/research-workflow.md` in the plugin directory — read it now if you haven't this session.
 
 ## Your job
 
 1. **If this is the first invocation** (no `unknowns-registry.md` exists yet):
    - **Create all core artifacts from templates first:**
-     - `unknowns-registry.md` (from `skills/research-loop/templates/unknowns-registry.md`)
-     - `landscape-table.md` (from `skills/research-loop/templates/landscape-table.md`)
-     - `hypothesis-tree.md` (from `skills/research-loop/templates/hypothesis-tree.md`)
-     - `decision-log.md` (from `skills/research-loop/templates/decision-log.md`)
-     - `archive.md` (from `skills/research-loop/templates/archive.md`)
-     - `probe-registry.md` (from `skills/research-loop/templates/probe-registry.md`)
-     - `time-budget.md` (from `skills/research-loop/templates/time-budget.md`)
-     - `proxy-log.md` (from `skills/research-loop/templates/proxy-log.md`)
-     - `human-escalation-policy.md` (from `skills/research-loop/templates/human-escalation-policy.md`)
-     - `.deep-research/session-state.json` (from `skills/research-loop/templates/session-state.json`)
-     - `mega-plan.md` (empty, from `skills/research-loop/templates/mega-plan.md`; populated in Phase 7)
+     - `unknowns-registry.md` (from `.agents/skills/research-loop/templates/unknowns-registry.md`)
+     - `landscape-table.md` (from `.agents/skills/research-loop/templates/landscape-table.md`)
+     - `hypothesis-tree.md` (from `.agents/skills/research-loop/templates/hypothesis-tree.md`)
+     - `decision-log.md` (from `.agents/skills/research-loop/templates/decision-log.md`)
+     - `archive.md` (from `.agents/skills/research-loop/templates/archive.md`)
+     - `probe-registry.md` (from `.agents/skills/research-loop/templates/probe-registry.md`)
+     - `time-budget.md` (from `.agents/skills/research-loop/templates/time-budget.md`)
+     - `proxy-log.md` (from `.agents/skills/research-loop/templates/proxy-log.md`)
+     - `human-escalation-policy.md` (from `.agents/skills/research-loop/templates/human-escalation-policy.md`)
+     - `.deep-research/session-state.json` (from `.agents/skills/research-loop/templates/session-state.json`)
+     - `mega-plan.md` (empty, from `.agents/skills/research-loop/templates/mega-plan.md`; populated in Phase 7)
    - Run Phase 1 (extract goal & constraints; write to `unknowns-registry.md`, `time-budget.md`, etc.).
    - Run Phase 2 (validate feasibility — bounded landscape scans).
    - Run Phase 3 (broad research sweep — map the landscape).

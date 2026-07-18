@@ -2,6 +2,7 @@
 import os
 import sys
 import json
+import tempfile
 from datetime import datetime
 
 ALLOWED_TRANSITIONS = {
@@ -18,14 +19,21 @@ ALLOWED_TRANSITIONS = {
     "10": []
 }
 
+def atomic_write_json(file_path, data):
+    dir_name = os.path.dirname(os.path.abspath(file_path))
+    os.makedirs(dir_name, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as f:
+        temp_name = f.name
+        json.dump(data, f, indent=2)
+    os.replace(temp_name, file_path)
+
 def main():
     if len(sys.argv) < 3:
-        print("Usage: advance_phase.py <from_phase> <to_phase> [--force]", file=sys.stderr)
+        print("Usage: advance_phase.py <from_phase> <to_phase>", file=sys.stderr)
         sys.exit(1)
         
     from_p = sys.argv[1]
     to_p = sys.argv[2]
-    force = "--force" in sys.argv
     
     workspace = os.getcwd()
     state_path = os.path.join(workspace, ".deep-research", "session-state.json")
@@ -44,16 +52,15 @@ def main():
     # Get current active phase from ledger
     current_phase = str(state_data.get("ledger", [{}])[-1].get("phase", "1"))
     
-    # Validation checks
-    if not force:
-        if current_phase != from_p:
-            print(f"Error: Current recorded phase is {current_phase}, but requested transition is from {from_p}.", file=sys.stderr)
-            sys.exit(1)
-            
-        allowed = ALLOWED_TRANSITIONS.get(from_p, [])
-        if to_p not in allowed:
-            print(f"Error: Transition from Phase {from_p} to Phase {to_p} is not allowed by the workflow graph schema.", file=sys.stderr)
-            sys.exit(1)
+    # Strict graph validation check (no bypass)
+    if current_phase != from_p:
+        print(f"Error: Current recorded phase is {current_phase}, but requested transition is from {from_p}.", file=sys.stderr)
+        sys.exit(1)
+        
+    allowed = ALLOWED_TRANSITIONS.get(from_p, [])
+    if to_p not in allowed:
+        print(f"Error: Transition from Phase {from_p} to Phase {to_p} is not allowed by the workflow graph schema.", file=sys.stderr)
+        sys.exit(1)
             
     print(f"Transition approved: Phase {from_p} -> Phase {to_p}")
     
@@ -61,7 +68,7 @@ def main():
     now_str = datetime.utcnow().isoformat() + "Z"
     if state_data.get("ledger"):
         last_entry = state_data["ledger"][-1]
-        if last_entry.get("end_iso") == "<ISO-8601>":
+        if last_entry.get("end_iso") is None:
             last_entry["end_iso"] = now_str
             start_t = datetime.fromisoformat(last_entry["start_iso"].replace("Z", "+00:00"))
             end_t = datetime.fromisoformat(now_str.replace("Z", "+00:00"))
@@ -72,7 +79,7 @@ def main():
         "iteration": state_data["ledger"][-1]["iteration"] + 1 if state_data.get("ledger") else 0,
         "phase": float(to_p) if "." in to_p else int(to_p),
         "start_iso": now_str,
-        "end_iso": "<ISO-8601>",
+        "end_iso": None,
         "duration_minutes": 0,
         "category": "research" if to_p in ["1", "2", "3", "3.5", "4", "5", "6"] else "execution",
         "mode": state_data.get("current_mode", "explore")
@@ -80,9 +87,8 @@ def main():
     state_data["ledger"].append(new_entry)
     state_data["last_updated_at"] = now_str
     
-    # Save updated session state
-    with open(state_path, "w") as f:
-        json.dump(state_data, f, indent=2)
+    # Save updated session state atomically
+    atomic_write_json(state_path, state_data)
         
     print(f"Workflow advanced. Current phase: {to_p}")
 

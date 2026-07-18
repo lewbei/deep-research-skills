@@ -82,8 +82,8 @@ def main():
         artifacts = {
             "unknowns-registry.md": ["# Unknowns Registry", "## Open unknowns", "## Answered unknowns"],
             "time-budget.md": ["# Time Budget", "## Budget definition", "## Budget ledger", "## Current state"],
-            "hypothesis-tree.md": ["# Hypothesis Tree", "## Active branches", "## Confidence scoring mapping"],
-            "decision-log.md": ["# Decision Log", "## Key decisions"],
+            "hypothesis-tree.md": ["# Hypothesis Tree", "## Branch statuses", "## Entry format", "## Active / selected branches"],
+            "decision-log.md": ["# Decision Log", "## Entry format", "## Decisions"],
             "proxy-log.md": ["# Proxy Log", "## Proxy statuses", "## Trivial-proxy ban list"],
             "human-escalation-policy.md": ["# Human Escalation Policy", "## When to escalate", "## Preventive triggers", "## Reactive triggers"],
             "mega-plan.md": ["# Mega-Plan", "## 1. Goal restatement", "## 2. Selected approach", "## 3. Milestone plan"]

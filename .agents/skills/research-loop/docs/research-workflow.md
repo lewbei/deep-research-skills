@@ -37,7 +37,7 @@ These persist as files throughout the workflow and survive across sessions:
 | **Context archive** | `archive.md` | Compressed summaries of eliminated branches. Full technical traces are moved here so active artifacts stay small and avoid the "Lost in the Middle" attention degradation. |
 | **Probe registry** | `probe-registry.md` | Tracks pending probe scripts, what they test, and their results. Carries probes from research (Phase 5) to execution (Phase 8). |
 | **Time budget** | `time-budget.md` | Total budget, elapsed time, current mode, and threshold log. Updated every loop iteration. |
-| **Session state** | `.deep-research/session-state.json` | Machine-readable budget state for fast parsing. Created from `skills/research-loop/templates/session-state.json`. |
+| **Session state** | `.deep-research/session-state.json` | Machine-readable budget state for fast parsing. Created from `.agents/skills/research-loop/templates/session-state.json`. |
 | **Proxy log** | `proxy-log.md` | Process reward proxies with validation status, correlation evidence, and gaming risk. |
 | **Human escalation policy** | `human-escalation-policy.md` | Preventive and reactive triggers, pre-approved conditions, and escalation log. |
 | **Mechanism files** | `approaches/<name>/mechanism.md` | Detailed how-it-works for each approach: architecture, math, flowchart, training, inference. |
@@ -386,7 +386,7 @@ This is the core of the workflow. Each iteration is one pass through steps 3.5-9
    - If the step failed but kill criterion not met → debug and retry (max 2 retries before switching).
    - If kill criterion met → switch to secondary approach (record in decision log).
    - If a new approach idea emerged → add as new branch.
-   - **Update the confidence label** of the branch based on the process reward proxy, not just pass/fail. Use the mapping from `skills/research-loop/templates/hypothesis-tree.md`: LOW (0.0–0.3), MEDIUM (0.3–0.6), HIGH (0.6–1.0). Keep MEDIUM+ branches active; prune LOW branches after ≥2 attempts. The numeric score is an optional aid; the qualitative label is the source of truth.
+   - **Update the confidence label** of the branch based on the process reward proxy, not just pass/fail. Use the mapping from `.agents/skills/research-loop/templates/hypothesis-tree.md`: LOW (0.0–0.3), MEDIUM (0.3–0.6), HIGH (0.6–1.0). Keep MEDIUM+ branches active; prune LOW branches after ≥2 attempts. The numeric score is an optional aid; the qualitative label is the source of truth.
 
 4. **Human escalation triggers:** consult `human-escalation-policy.md`. The following reactive triggers halt the loop and ask the user:
    - R1: highest-priority branch killed AND secondary approach also fails.
