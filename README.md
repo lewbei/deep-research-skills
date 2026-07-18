@@ -10,7 +10,7 @@ Unlike naive upfront-research loops, this repository implements a continuous **r
 
 ---
 
-## 🚀 Workflow Architecture
+## Workflow Architecture
 
 ```mermaid
 graph TD
@@ -29,17 +29,17 @@ graph TD
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-- 🕒 **Time-Budget Pacing:** Continuously adjusts behavior (`explore` → `commit` → `sprint` → `last-stand` → `halt`) as the wall-clock time is consumed.
-- 🎯 **Goodhart's Law Guardrails:** Prevents chasing fake proxies by validating process-reward metrics against real outcomes using Spearman rank correlation.
-- 🛡️ **Read-Only Subagents:** Prevents write-conflict state drift by keeping research subagents read-only and returning structured summaries to the orchestrator.
-- 🔎 **Independent Verification:** Integrates a skeptical verification subagent that confirms all extracted claims against primary sources to eliminate hallucinated details.
-- 🚨 **Preventive & Reactive Escalation:** Outlines clear human-in-the-loop triggers (budget thresholds, plan divergence, flat progress) to ensure the human is notified before resource waste occurs.
+- **Time-Budget Pacing:** Continuously adjusts behavior (`explore` → `commit` → `sprint` → `last-stand` → `halt`) as the wall-clock time is consumed.
+- **Goodhart's Law Guardrails:** Prevents chasing fake proxies by validating process-reward metrics against real outcomes using Spearman rank correlation.
+- **Read-Only Subagents:** Prevents write-conflict state drift by keeping research subagents read-only and returning structured summaries to the orchestrator.
+- **Independent Verification:** Integrates a skeptical verification subagent that confirms all extracted claims against primary sources to eliminate hallucinated details.
+- **Preventive & Reactive Escalation:** Outlines clear human-in-the-loop triggers (budget thresholds, plan divergence, flat progress) to ensure the human is notified before resource waste occurs.
 
 ---
 
-## 📦 Project Structure
+## Project Structure
 
 ```
 deep-research-skills/
@@ -66,7 +66,7 @@ deep-research-skills/
 
 ---
 
-## 🛠️ Available Skills
+## Available Skills
 
 ### `/deep-research:research-loop` (Orchestrator)
 The central loop coordinator. Manages time budgeting, updates persistent registries, delegates research, and implements the step-by-step execution path.
@@ -82,6 +82,6 @@ A skeptical verifier that re-reads primary sources to confirm that claims are al
 
 ---
 
-## 📝 License
+## License
 
 This project is open-source and available under the MIT License.
