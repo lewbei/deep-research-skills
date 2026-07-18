@@ -1,6 +1,8 @@
 import os
 import re
+import json
 from typing import Dict, List, Tuple
+from deep_research.models import SessionState
 
 def validate_frontmatter(skill_path: str) -> Tuple[bool, str]:
     if not os.path.exists(skill_path):
@@ -49,6 +51,42 @@ def validate_artifact(workspace: str, filename: str, expected_headers: List[str]
     except Exception as e:
         return False, f"Error validating {filename}: {e}"
 
+def validate_session_state_schema(workspace: str) -> List[str]:
+    from deep_research.storage import get_session_state_path, load_session_state
+    from deep_research.state_machine import load_graph_transitions
+    
+    path = get_session_state_path(workspace)
+    if not os.path.exists(path):
+        return ["session-state.json file is missing"]
+        
+    errors = []
+    try:
+        # Loading states instantiates dataclass validation checks
+        state = load_session_state(workspace)
+        
+        # Verify budget constraints
+        if state.budget.research_percent + state.budget.execution_percent != 100:
+            errors.append(f"Invalid budget percentages: R={state.budget.research_percent}% and E={state.budget.execution_percent}% must sum to 100%")
+            
+        # Verify ledger consistency
+        transitions = load_graph_transitions(workspace)
+        last_phase = None
+        for i, entry in enumerate(state.ledger):
+            if entry.iteration != i:
+                errors.append(f"Ledger inconsistency: iteration index {entry.iteration} does not match slot {i}")
+            current_phase = entry.phase
+            
+            if i > 0 and last_phase is not None:
+                allowed_next = transitions.get(last_phase, [])
+                if current_phase not in allowed_next:
+                    errors.append(f"Ledger transition error: phase {current_phase} is not an approved edge from phase {last_phase} in the active graph config")
+            last_phase = current_phase
+            
+    except Exception as e:
+        errors.append(f"State schema validation error: {e}")
+        
+    return errors
+
 def validate_session_workspace(workspace: str, project_root: str) -> Tuple[bool, List[str]]:
     errors = []
     
@@ -65,6 +103,10 @@ def validate_session_workspace(workspace: str, project_root: str) -> Tuple[bool,
     # 2. Validate workspace artifacts
     state_path = os.path.join(workspace, ".deep-research", "session-state.json")
     if os.path.exists(state_path):
+        # Validate state JSON structure and ledger integrity
+        state_errors = validate_session_state_schema(workspace)
+        errors.extend(state_errors)
+        
         artifacts = {
             "unknowns-registry.md": ["# Unknowns Registry", "## Open unknowns", "## Answered unknowns"],
             "time-budget.md": ["# Time Budget", "## Budget definition", "## Budget ledger", "## Current state"],

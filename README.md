@@ -4,13 +4,13 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](CONTRIBUTING.md)
 [![Workflow](https://img.shields.io/badge/Workflow-Interleaved--Research-orange.svg)](.agents/skills/research-loop/docs/research-workflow.md)
 
-An operationalized, time-aware **interleaved deep-research and execution workflow** for Devin and Antigravity agents. Designed specifically for time-constrained competitions, hackathons, and research-heavy tasks.
+An operationalized, time-aware interleaved deep-research and execution workflow for Devin and Antigravity agents. Designed specifically for time-constrained competitions, hackathons, and research-heavy tasks.
 
-Unlike naive upfront-research loops, this repository implements a continuous **research → execute 1 bounded unit of work → learn → repeat** cycle driven by a persistent unknowns registry.
+Unlike naive upfront-research loops, this repository implements a continuous research -> execute 1 bounded unit of work -> learn -> repeat cycle driven by a persistent unknowns registry and enforced by a deterministic python state-machine runtime.
 
 ---
 
-## 🚀 Workflow Architecture
+## Workflow Architecture
 
 ```mermaid
 graph TD
@@ -29,9 +29,9 @@ graph TD
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-- **Time-Budget Pacing:** Continuously adjusts behavior (`explore` → `commit` → `sprint` → `last-stand` → `halt`) as the wall-clock time is consumed.
+- **Time-Budget Pacing:** Continuously adjusts behavior (explore -> commit -> sprint -> last-stand -> halt) as the wall-clock time is consumed.
 - **Goodhart's Law Guardrails:** Prevents chasing fake proxies by validating process-reward metrics against real outcomes using Spearman rank correlation (requires at least 5 observations).
 - **Read-Only Subagents:** Prevents write-conflict state drift by keeping research subagents read-only and returning structured summaries to the orchestrator.
 - **Independent Verification:** Integrates a skeptical verification subagent that confirms all extracted claims against primary sources to significantly reduce source-claim drift and identify inconsistencies.
@@ -39,19 +39,20 @@ graph TD
 
 ---
 
-## ⚙️ Deterministic Control Layer
+## Deterministic Control Layer (drs CLI Tool)
 
-To ensure the agent executes the workflow graph correctly and reliably, this repository provides a **deterministic control layer** in the `scripts/` directory:
+To ensure the agent executes the workflow graph correctly and reliably, this repository provides a unified control layer packaged as a Python package (`deep_research`) with a command-line interface (`drs`):
 
-- **`scripts/initialize_session.py`:** Pre-instantiates all core markdown templates and sets up the session state JSON.
-- **`scripts/calculate_budget.py`:** Automatically tracks elapsed wall-clock time, checks budget pacing thresholds, and updates the session mode.
-- **`scripts/calculate_proxy.py`:** Records proxy metrics versus true outcomes and calculates Spearman rank correlation (with tie-handling) over at least 5 observations.
-- **`scripts/advance_phase.py`:** Validates phase transitions against the allowed graph schema to prevent transition bypasses.
-- **`scripts/validate_state.py`:** Automates validation of `SKILL.md` frontmatter formatting and template schemas.
+- **drs init:** Pre-instantiates all core markdown templates, generates a unique session UUID, and sets up the session state JSON.
+- **drs status:** Tally elapsed pacing metrics and prints active phase, remaining time, and R/E budget consumption.
+- **drs transition <from> <to>:** Enforces graph transitions, checking transitions against transitions.yaml or default graph, and blocks research phases in sprint/halt modes.
+- **drs budget:** Updates elapsed time and changes active budget pacing mode.
+- **drs proxy <id> --add <val>:<true>:** Tracks proxy observations and runs a mathematically correct Spearman rank correlation to detect metric drift.
+- **drs validate:** Runs validation checks against all templates, skills frontmatter, and session state ledger integrity.
 
 ---
 
-## 📦 Project Structure
+## Project Structure
 
 ```
 deep-research-skills/
@@ -59,12 +60,16 @@ deep-research-skills/
 ├── LICENSE                        # License file
 ├── CONTRIBUTING.md                # Contributing guidelines
 ├── install.py                     # Installer script
-├── scripts/                       # Deterministic runtime control scripts
-│   ├── initialize_session.py
-│   ├── calculate_budget.py
-│   ├── calculate_proxy.py
-│   ├── advance_phase.py
-│   └── validate_state.py
+├── pyproject.toml                 # Package configuration metadata
+├── drs                            # CLI executable wrapper
+├── deep_research/                 # Unified Python runtime package
+│   ├── models.py                  # Dataclasses and strict validation schemas
+│   ├── storage.py                 # Atomic storage and file utilities
+│   ├── state_machine.py           # Transition checker and graphs
+│   ├── budget.py                  # Time budget calculations
+│   ├── proxies.py                 # Spearman correlation rank math
+│   ├── validation.py              # Frontmatter and templates validators
+│   └── cli.py                     # CLI command line endpoints
 └── .agents/
     └── skills/                    # Auto-discovered skills directory
         ├── research-loop/
@@ -94,32 +99,21 @@ deep-research-skills/
 
 ---
 
-## 🛠️ Available Skills
+## Installation & Setup
 
-### `@skills:research-loop` (Orchestrator)
-The central loop coordinator. Manages time budgeting, updates persistent registries, delegates research, and implements the step-by-step execution path.
-
-### `@skills:landscape-scan` (Subagent)
-Performs scoped, bounded sweeps of rules, leaderboard results, public code, and write-ups/papers. Emits a verification-ready `claim_set`.
-
-### `@skills:deep-dive` (Subagent)
-Conducts a bounded depth-dive into a specific paper, codebase, or technique to extract concrete mathematical/architectural definitions.
-
-### `@skills:verify` (Subagent)
-A skeptical verifier that re-reads primary sources to confirm that claims are aligned, partially supported, or contradicted.
-
----
-
-## 💻 Installation
-
-Devin and Antigravity discover custom project skills inside `.agents/skills/`.
-
-1. Clone this repository into your workspace.
+1. Install the CLI package in editable mode:
+   ```bash
+   pip install -e .
+   ```
 2. Run the installer script to place the skills in the correct auto-discovery location:
    ```bash
    python3 install.py
    ```
 3. Initialize the deep research session:
    ```bash
-   python3 scripts/initialize_session.py --total-minutes 120
+   drs init --total-minutes 120 --kind soft
+   ```
+4. Run phase transitions during execution:
+   ```bash
+   drs transition 1 2
    ```

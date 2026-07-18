@@ -8,54 +8,38 @@ triggers:
 ---
 
 You are running an **interleaved research-and-execute loop**. The full process is in `.agents/skills/research-loop/docs/research-workflow.md` in the plugin directory — read it now if you haven't this session.
+You MUST use the `./drs` CLI tool to initialize, track, and validate all workflow state transitions.
 
 ## Your job
 
 1. **If this is the first invocation** (no `unknowns-registry.md` exists yet):
-   - **Create all core artifacts from templates first:**
-     - `unknowns-registry.md` (from `.agents/skills/research-loop/templates/unknowns-registry.md`)
-     - `landscape-table.md` (from `.agents/skills/research-loop/templates/landscape-table.md`)
-     - `hypothesis-tree.md` (from `.agents/skills/research-loop/templates/hypothesis-tree.md`)
-     - `decision-log.md` (from `.agents/skills/research-loop/templates/decision-log.md`)
-     - `archive.md` (from `.agents/skills/research-loop/templates/archive.md`)
-     - `probe-registry.md` (from `.agents/skills/research-loop/templates/probe-registry.md`)
-     - `time-budget.md` (from `.agents/skills/research-loop/templates/time-budget.md`)
-     - `proxy-log.md` (from `.agents/skills/research-loop/templates/proxy-log.md`)
-     - `human-escalation-policy.md` (from `.agents/skills/research-loop/templates/human-escalation-policy.md`)
-     - `.deep-research/session-state.json` (from `.agents/skills/research-loop/templates/session-state.json`)
-     - `mega-plan.md` (empty, from `.agents/skills/research-loop/templates/mega-plan.md`; populated in Phase 7)
+   - **Initialize the session using the CLI:**
+     Run `./drs init --total-minutes <minutes> --kind <hard/soft>`
+     This automatically instantiates the state directory and populates all compliant templates.
    - Run Phase 1 (extract goal & constraints; write to `unknowns-registry.md`, `time-budget.md`, etc.).
-   - Run Phase 2 (validate feasibility — bounded landscape scans).
-   - Run Phase 3 (broad research sweep — map the landscape).
+   - Advance phase via `./drs transition 1 2` to run Phase 2 (validate feasibility — bounded landscape scans).
+   - Advance phase via `./drs transition 2 3` to run Phase 3 (broad research sweep — map the landscape).
    - Then enter the loop.
 
 2. **If artifacts already exist** (loop is resuming):
    - Read `unknowns-registry.md`, `hypothesis-tree.md`, `decision-log.md`, `time-budget.md`, `proxy-log.md`, `human-escalation-policy.md`, `probe-registry.md`, `landscape-table.md`.
+   - Run `./drs status` to confirm the active state.
    - Resume at Phase 3.5 (budget checkpoint) then Phase 4.
 
 ## The loop (Phases 3.5-9)
 
+You must run `./drs transition <from> <to>` for all phase transitions. The state-machine enforces graph checks and restricts research phases depending on the budget mode.
+
 Each iteration:
 
-1. **Budget checkpoint (Phase 3.5).** Update `time-budget.md` and `.deep-research/session-state.json`. Determine current mode (`explore`, `commit`, `sprint`, `last-stand`, `halt`). If a threshold is crossed, follow `time-budget.md` decision rules and escalate via `human-escalation-policy.md` if needed.
-
-2. **Check `unknowns-registry.md`** — pick the highest-priority open unknown that blocks a decision, respecting the current mode.
-
-3. **Research it** — use `@skills:landscape-scan` (scoped, bounded) or `@skills:deep-dive` (bounded depth) to investigate. Pass an explicit budget envelope. Update the registry with the answer and verifier verdict.
-
-4. **Invoke verifier for P0/P1 unknowns** before marking `verified`:
-   - Extract the `claim_set` from the deep-dive or landscape-scan output.
-   - Call `@skills:verify` with the source, `unknown_id`, `claim_set`, `verdict_type: pre-commit`, and a budget.
-   - If verifier returns `aligned` or `minor-drift`, record the verifier verdict and proceed.
-   - If `major-drift` or `inconclusive`, downgrade the unknown, record the verdict, create a follow-up unknown if needed, and do not commit.
-
-5. **Update `hypothesis-tree.md`** — add/refine/prune branches based on new knowledge. Ensure every P0/P1 branch has a `proxy-log.md` entry before confidence scoring.
-
-6. **Pick the next execution step (Phase 7)** — from the highest-priority hypothesis branch (≥MEDIUM confidence, acceptable cost). Write the abstract alignment sentence, define the concrete step, set success / kill criteria, and define a process reward proxy. Check `human-escalation-policy.md` preventive triggers. Populate `mega-plan.md` with the concrete step.
-
-7. **Execute 1 bounded unit of work** — run pending probes first, then implement, test, measure. Record results in `proxy-log.md`.
-
-8. **Learn** — update proxy correlation, hypothesis tree, unknowns registry, decision log. Decide: continue loop, switch approach, escalate, or done?
+1. **Budget checkpoint (Phase 3.5):** Run `./drs budget` to calculate elapsed pacing and transition budget modes. If a threshold is crossed, follow `time-budget.md` rules and escalate if needed.
+2. **Check `unknowns-registry.md` (Phase 4):** Transition via `./drs transition 3.5 4`. Pick the highest-priority open unknown that blocks a decision.
+3. **Research it (Phase 5):** Transition via `./drs transition 4 5`. Use `@skills:landscape-scan` or `@skills:deep-dive`. Update the registry with findings.
+4. **Hypothesis validation (Phase 6):** Transition via `./drs transition 5 6`. Update `hypothesis-tree.md` branches. Ensure P0/P1 branches have a `proxy-log.md` entry.
+5. **Pick the next execution step (Phase 7):** Transition via `./drs transition 6 7` (or `./drs transition 4 7` if no new research was needed). Populate `mega-plan.md`.
+6. **Execute 1 bounded unit of work (Phase 8):** Transition via `./drs transition 7 8`. Execute the probe/code, implement, test, and measure. Record results.
+7. **Learn & Validate Proxies (Phase 9):** Transition via `./drs transition 8 9`. Run `./drs proxy <id> --add <val>:<true>` to calculate Spearman rank correlation and validate proxies.
+8. **Loop back or Conclude:** Run `./drs transition 9 3.5` to start a new loop iteration, or `./drs transition 9 10` to complete the session. Run `./drs validate` to ensure 100% schema compliance.
 
 ## When to stop the loop
 

@@ -78,7 +78,7 @@ class TestDeepResearchRuntime(unittest.TestCase):
         with open(state_path, "r") as f:
             state = json.load(f)
         self.assertEqual(len(state["ledger"]), 2)
-        self.assertEqual(state["ledger"][-1]["phase"], 2)
+        self.assertEqual(state["ledger"][-1]["phase"], "2")
         self.assertIsNotNone(state["ledger"][0]["end_iso"])
         self.assertGreaterEqual(state["ledger"][0]["duration_minutes"], 0.0)
 
@@ -152,6 +152,35 @@ class TestDeepResearchRuntime(unittest.TestCase):
         res = self.run_drs(["validate"])
         self.assertNotEqual(res.returncode, 0)
         self.assertIn("Validation FAILED", res.stdout + res.stderr)
+
+    def test_06_budget_mode_enforcement(self):
+        self.run_drs(["init"])
+        
+        # Manually alter state mode to 'sprint' (to test transition block)
+        state_path = os.path.join(self.test_dir, ".deep-research", "session-state.json")
+        with open(state_path, "r") as f:
+            state = json.load(f)
+        state["current_mode"] = "sprint"
+        with open(state_path, "w") as f:
+            json.dump(state, f)
+            
+        # Illegal transition: Sprint mode prohibits moving back into research phases (like phase 2)
+        res = self.run_drs(["transition", "1", "2"])
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("Transition denied: Current mode is 'sprint'", res.stderr)
+
+    def test_07_fail_closed_transitions(self):
+        self.run_drs(["init"])
+        
+        # Write corrupted transitions.yaml
+        yaml_path = os.path.join(self.test_dir, ".deep-research", "transitions.yaml")
+        with open(yaml_path, "w") as f:
+            f.write("phases:\n  - malformed_list_instead_of_dict\n")
+            
+        # Transition must fail closed
+        res = self.run_drs(["transition", "1", "2"])
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("Workflow execution blocked: Invalid transitions.yaml", res.stderr)
 
 if __name__ == "__main__":
     unittest.main()

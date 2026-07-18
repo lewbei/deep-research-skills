@@ -20,30 +20,41 @@ DEFAULT_TRANSITIONS = {
     "10": []
 }
 
+RESEARCH_PHASES = {"1", "2", "3", "3.5", "4", "5", "6", "research", "feasibility", "landscape", "verify"}
+
 def load_graph_transitions(workspace: str) -> Dict[str, List[str]]:
     custom_path = os.path.join(workspace, ".deep-research", "transitions.yaml")
     if os.path.exists(custom_path):
         try:
             with open(custom_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
-                if isinstance(data, dict) and "phases" in data:
-                    transitions = {}
-                    for phase, cfg in data["phases"].items():
-                        transitions[str(phase)] = [str(t) for t in cfg.get("transitions", [])]
-                    return transitions
+                if not isinstance(data, dict) or "phases" not in data:
+                    raise ValueError("Root key 'phases' missing in custom transitions.yaml")
+                transitions = {}
+                for phase, cfg in data["phases"].items():
+                    transitions[str(phase)] = [str(t) for t in cfg.get("transitions", [])]
+                return transitions
         except Exception as e:
-            print(f"Warning: Failed to load custom transitions.yaml: {e}", file=sys.stderr)
+            # FAIL CLOSED: Raise exception on malformed transition config
+            raise ValueError(f"Workflow execution blocked: Invalid transitions.yaml ({e})")
     return DEFAULT_TRANSITIONS
 
 def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str) -> str:
-    # 1. Load transitions map
+    # 1. Load transitions map (fails closed if transitions.yaml is invalid)
     transitions = load_graph_transitions(workspace)
     
-    # 2. Get current phase
+    # 2. Enforce budget modes during transitions
+    if state.current_mode == "halt" and to_p != "10":
+        raise ValueError(f"Transition denied: Current mode is 'halt' (budget exhausted). Cannot transition to Phase {to_p}. Run Phase 10 reflection.")
+        
+    if state.current_mode == "sprint" and to_p in RESEARCH_PHASES:
+        raise ValueError(f"Transition denied: Current mode is 'sprint' (research prohibited). Cannot transition to research Phase {to_p}.")
+
+    # 3. Get current phase
     current_phase = "1"
     if state.ledger:
         current_phase = str(state.ledger[-1].phase)
-        # Handle float representation formatting e.g. "3.5" vs "3"
+        # Strip float suffix if formatting slipped
         if current_phase.endswith(".0"):
             current_phase = current_phase[:-2]
             
@@ -54,7 +65,7 @@ def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str
     if to_p not in allowed:
         raise ValueError(f"Transition from Phase {from_p} to Phase {to_p} is not allowed by the workflow graph schema.")
         
-    # 3. Approve transition and update ledger
+    # 4. Approve transition and update ledger
     now_str = datetime.utcnow().isoformat() + "Z"
     if state.ledger:
         last_entry = state.ledger[-1]
@@ -66,12 +77,11 @@ def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str
             
     # Add new phase entry to ledger
     new_iteration = state.ledger[-1].iteration + 1 if state.ledger else 0
-    new_phase_val = float(to_p) if "." in to_p else int(to_p)
-    category = "research" if to_p in ["1", "2", "3", "3.5", "4", "5", "6"] else "execution"
+    category = "research" if to_p in RESEARCH_PHASES else "execution"
     
     new_entry = LedgerEntry(
         iteration=new_iteration,
-        phase=new_phase_val,
+        phase=to_p,  # Stored strictly as string phase ID
         start_iso=now_str,
         category=category,
         mode=state.current_mode

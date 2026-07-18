@@ -92,6 +92,41 @@ def drs_status(args):
             last_entry = state.ledger[-1]
             print(f"Current Phase:{last_entry.phase} ({last_entry.category})")
             print(f"Iteration:    {last_entry.iteration}")
+            
+        # Calculate and display live elapsed metrics
+        started_at = datetime.fromisoformat(state.started_at.replace("Z", "+00:00"))
+        now = datetime.now(started_at.tzinfo)
+        elapsed_minutes = (now - started_at).total_seconds() / 60.0
+        remaining_minutes = max(0.0, state.budget.total_minutes - elapsed_minutes)
+        
+        research_budget = state.budget.total_minutes * (state.budget.research_percent / 100.0)
+        execution_budget = state.budget.total_minutes * (state.budget.execution_percent / 100.0)
+        
+        research_elapsed = 0.0
+        execution_elapsed = 0.0
+        for entry in state.ledger:
+            duration = entry.duration_minutes
+            if entry.category == "research":
+                research_elapsed += duration
+            elif entry.category == "execution":
+                execution_elapsed += duration
+                
+        if state.ledger:
+            last_entry = state.ledger[-1]
+            if last_entry.end_iso is None:
+                delta = (now - datetime.fromisoformat(last_entry.start_iso.replace("Z", "+00:00"))).total_seconds() / 60.0
+                if last_entry.category == "research":
+                    research_elapsed += delta
+                else:
+                    execution_elapsed += delta
+                    
+        research_use_pct = (research_elapsed / research_budget) * 100.0 if research_budget > 0 else 0
+        execution_use_pct = (execution_elapsed / execution_budget) * 100.0 if execution_budget > 0 else 0
+        
+        print(f"Elapsed:      {elapsed_minutes:.1f} min")
+        print(f"Remaining:    {remaining_minutes:.1f} min")
+        print(f"Research budget used:  {research_use_pct:.1f}%")
+        print(f"Execution budget used: {execution_use_pct:.1f}%")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
