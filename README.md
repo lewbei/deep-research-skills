@@ -1,8 +1,8 @@
-# deep-research-plugin
+# deep-research-skills
 
 An operationalized, time-aware **interleaved deep-research and execution workflow** for Devin and Antigravity agents. Designed specifically for time-constrained competitions, hackathons, and research-heavy tasks.
 
-Unlike naive upfront-research loops, this plugin implements a continuous **research → execute 1 step → learn → repeat** cycle driven by a persistent unknowns registry.
+Unlike naive upfront-research loops, this repository implements a continuous **research → execute 1 step → learn → repeat** cycle driven by a persistent unknowns registry.
 
 ---
 
@@ -38,9 +38,7 @@ graph TD
 ## 📦 Project Structure
 
 ```
-deep-research-plugin/
-├── .devin-plugin/
-│   └── plugin.json                # Plugin metadata
+deep-research-skills/
 ├── README.md                      # Project documentation
 └── skills/
     └── research-loop/
