@@ -39,12 +39,22 @@ def drs_init(args):
         print(f"Error loading session-state template: {e}", file=sys.stderr)
         sys.exit(1)
         
+    from deep_research.state_machine import load_graph_config
+    try:
+        graph_config = load_graph_config(workspace)
+        initial_phase = graph_config["initial_phase"]
+    except Exception as e:
+        print(f"Error loading transitions configuration: {e}", file=sys.stderr)
+        sys.exit(1)
+        
     state.session_id = str(uuid.uuid4())
     state.started_at = datetime.utcnow().isoformat() + "Z"
     state.last_updated_at = state.started_at
     if state.ledger:
         state.ledger[0].start_iso = state.started_at
         state.ledger[0].end_iso = None
+        state.ledger[0].phase = initial_phase
+        state.ledger[0].category = graph_config["phases"].get(initial_phase, {}).get("category", "research")
         
     try:
         state.budget = BudgetConfig(

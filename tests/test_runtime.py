@@ -286,26 +286,58 @@ class TestDeepResearchRuntime(unittest.TestCase):
         self.assertNotEqual(res_wrong_from.returncode, 0)
         self.assertIn("requested transition is from 2", res_wrong_from.stderr)
 
-        # 3. Custom YAML numeric phase normalization and collision check
-        self.run_drs(["init"])
+        # 3. Custom YAML numeric phase normalization, collisions, escapes, and initial phase checks
         yaml_dir = os.path.join(self.test_dir, ".deep-research")
         os.makedirs(yaml_dir, exist_ok=True)
         yaml_path = os.path.join(yaml_dir, "transitions.yaml")
         
-        # Custom YAML with floats as keys/targets
+        # Test custom initial phase initialization
         with open(yaml_path, "w") as f:
-            f.write("phases:\n  1.0:\n    category: research\n    transitions: [2.0]\n  2.0:\n    category: execution\n    transitions: []\n")
+            f.write("initial_phase: init\nterminal_phase: done\nsprint_target: done\nphases:\n  init:\n    category: research\n    transitions: [done]\n  done:\n    category: execution\n    transitions: []\n")
+        res_custom_init = self.run_drs(["init"])
+        self.assertEqual(res_custom_init.returncode, 0, res_custom_init.stderr)
+        
+        # Verify ledger initialized with 'init' instead of default '1'
+        with open(state_path, "r") as f:
+            state = json.load(f)
+        self.assertEqual(state["ledger"][0]["phase"], "init")
+        
+        # Clean up custom transitions to reset
+        os.remove(yaml_path)
+        self.run_drs(["init"])
+        
+        # Custom YAML with floats as keys/targets, defining phase metadata
+        with open(yaml_path, "w") as f:
+            f.write("initial_phase: 1.0\nterminal_phase: 2.0\nsprint_target: 2.0\nphases:\n  1.0:\n    category: research\n    transitions: [2.0]\n  2.0:\n    category: execution\n    transitions: []\n")
             
         # Normal transition 1 -> 2 should work under float normalization
         res_norm = self.run_drs(["transition", "1", "2"])
         self.assertEqual(res_norm.returncode, 0, res_norm.stderr)
         
-        # Custom YAML collision check: defining both '2' and '2.0' as strings (fails load due to collision)
+        # Custom YAML collision check (quoted string keys)
         with open(yaml_path, "w") as f:
-            f.write("phases:\n  '1':\n    category: research\n    transitions: []\n  '2':\n    category: research\n    transitions: []\n  '2.0':\n    category: execution\n    transitions: []\n")
+            f.write("initial_phase: '1'\nterminal_phase: '2'\nsprint_target: '2'\nphases:\n  '1':\n    category: research\n    transitions: []\n  '2':\n    category: research\n    transitions: []\n  '2.0':\n    category: execution\n    transitions: []\n")
         res_collision = self.run_drs(["transition", "1", "2"])
         self.assertNotEqual(res_collision.returncode, 0)
         self.assertIn("duplicate normalized phase keys", res_collision.stderr + res_collision.stdout)
+        
+        # Custom YAML collision check (unquoted numeric duplicates)
+        with open(yaml_path, "w") as f:
+            f.write("initial_phase: '1'\nterminal_phase: '2'\nsprint_target: '2'\nphases:\n  1:\n    category: research\n    transitions: []\n  2:\n    category: research\n    transitions: []\n  2.0:\n    category: execution\n    transitions: []\n")
+        res_unquoted_collision = self.run_drs(["transition", "1", "2"])
+        self.assertNotEqual(res_unquoted_collision.returncode, 0)
+        self.assertIn("Duplicate mapping key detected", res_unquoted_collision.stderr + res_unquoted_collision.stdout)
+        
+        # Clean up unquoted duplicate config
+        os.remove(yaml_path)
+        
+        # Custom YAML directory escape check (required artifact tries to traverse outside workspace)
+        self.run_drs(["init"])
+        with open(yaml_path, "w") as f:
+            f.write("initial_phase: '1'\nterminal_phase: '2'\nsprint_target: '2'\nphases:\n  '1':\n    category: research\n    transitions: ['2']\n    required_artifacts: ['../outside.txt']\n  '2':\n    category: execution\n    transitions: []\n")
+        res_escape_gate = self.run_drs(["transition", "1", "2"])
+        self.assertNotEqual(res_escape_gate.returncode, 0)
+        self.assertIn("escapes the workspace directory boundaries", res_escape_gate.stderr + res_escape_gate.stdout)
         
         # Clean up custom YAML to prevent pollution in subsequent tests
         os.remove(yaml_path)

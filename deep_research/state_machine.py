@@ -13,15 +13,27 @@ DEFAULT_PHASES = {
     "3": {"category": "research", "transitions": ["3.5"]},
     "3.5": {"category": "research", "transitions": ["4"]},
     "4": {"category": "research", "transitions": ["5", "7"]},
-    "5": {"category": "research", "transitions": ["6"]},
+    "5": {"category": "research", "transitions": ["6"], "required_artifacts": ["probe-registry.md"]},
     "6": {"category": "research", "transitions": ["7"]},
     "7": {"category": "execution", "transitions": ["4", "8"], "required_artifacts": ["mega-plan.md"]},
-    "8": {"category": "execution", "transitions": ["9"]},
+    "8": {"category": "execution", "transitions": ["9"], "required_artifacts": ["proxy-log.md"]},
     "9": {"category": "execution", "transitions": ["3.5", "10"]},
     "10": {"category": "execution", "transitions": []}
 }
 
-RESEARCH_PHASES = {"1", "2", "3", "3.5", "4", "5", "6", "research", "feasibility", "landscape", "verify"}
+class UniqueSafeLoader(yaml.SafeLoader):
+    """
+    A custom SafeLoader that fails on duplicate YAML mapping keys
+    to prevent silent overrides (e.g. key '2' and float key '2.0').
+    """
+    def construct_mapping(self, node, deep=False):
+        mapping = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in mapping:
+                raise ValueError(f"Duplicate mapping key detected: '{key}'")
+            mapping[key] = self.construct_object(value_node, deep=deep)
+        return super().construct_mapping(node, deep=deep)
 
 def normalize_phase_str(value: Any) -> str:
     text = str(value)
@@ -29,11 +41,10 @@ def normalize_phase_str(value: Any) -> str:
         return text[:-2]
     return text
 
-def validate_graph_schema(phases_data: Dict[str, Any]):
+def validate_graph_schema(phases_data: Dict[str, Any], initial_phase: str, terminal_phase: str, sprint_target: str):
     if not isinstance(phases_data, dict):
         raise ValueError("Root transitions config under 'phases' must be a dictionary mapping.")
         
-    # Check for normalized phase key collisions
     normalized_keys = {}
     for raw_phase in phases_data.keys():
         norm_phase = normalize_phase_str(raw_phase)
@@ -43,9 +54,12 @@ def validate_graph_schema(phases_data: Dict[str, Any]):
         
     all_phases = set(normalized_keys.keys())
     
-    # Require initial phase "1" or "init" or custom defined initial phase
-    if not any(p in all_phases for p in ["1", "init"]):
-        raise ValueError("Graph schema must define an initial phase (labeled '1' or 'init').")
+    if initial_phase not in all_phases:
+        raise ValueError(f"Graph schema initial_phase '{initial_phase}' does not exist in defined phases.")
+    if terminal_phase not in all_phases:
+        raise ValueError(f"Graph schema terminal_phase '{terminal_phase}' does not exist in defined phases.")
+    if sprint_target not in all_phases:
+        raise ValueError(f"Graph schema sprint_target '{sprint_target}' does not exist in defined phases.")
         
     has_terminal = False
     for phase_name, cfg in phases_data.items():
@@ -82,22 +96,33 @@ def validate_graph_schema(phases_data: Dict[str, Any]):
     if not has_terminal:
         raise ValueError("Graph schema must have at least one terminal phase (with no exit transitions).")
 
-def load_graph_config(workspace: str) -> Dict[str, Dict[str, Any]]:
+def load_graph_config(workspace: str) -> Dict[str, Any]:
     custom_path = os.path.join(workspace, ".deep-research", "transitions.yaml")
     if os.path.exists(custom_path):
         try:
             with open(custom_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-                if not isinstance(data, dict) or "phases" not in data:
-                    raise ValueError("Root key 'phases' missing in custom transitions.yaml")
-                phases_data = data["phases"]
-                validate_graph_schema(phases_data)
+                data = yaml.load(f, Loader=UniqueSafeLoader)
+                if not isinstance(data, dict):
+                    raise ValueError("Transitions config must be a dictionary mapping.")
+                
+                # Retrieve phase control metadata
+                initial_phase = normalize_phase_str(data.get("initial_phase", "1"))
+                terminal_phase = normalize_phase_str(data.get("terminal_phase", "10"))
+                sprint_target = normalize_phase_str(data.get("sprint_target", "7"))
+                
+                phases_data = data.get("phases", {})
+                validate_graph_schema(phases_data, initial_phase, terminal_phase, sprint_target)
                 
                 # Convert format
-                config = {}
+                config = {
+                    "initial_phase": initial_phase,
+                    "terminal_phase": terminal_phase,
+                    "sprint_target": sprint_target,
+                    "phases": {}
+                }
                 for phase, cfg in phases_data.items():
                     phase_norm = normalize_phase_str(phase)
-                    config[phase_norm] = {
+                    config["phases"][phase_norm] = {
                         "category": cfg.get("category", "execution"),
                         "transitions": [normalize_phase_str(t) for t in cfg.get("transitions", [])],
                         "required_artifacts": cfg.get("required_artifacts", [])
@@ -108,10 +133,15 @@ def load_graph_config(workspace: str) -> Dict[str, Dict[str, Any]]:
             raise ValueError(f"Workflow execution blocked: Invalid transitions.yaml ({e})")
             
     # Normalize DEFAULT_PHASES
-    normalized_defaults = {}
+    normalized_defaults = {
+        "initial_phase": "1",
+        "terminal_phase": "10",
+        "sprint_target": "7",
+        "phases": {}
+    }
     for phase, cfg in DEFAULT_PHASES.items():
         phase_norm = normalize_phase_str(phase)
-        normalized_defaults[phase_norm] = {
+        normalized_defaults["phases"][phase_norm] = {
             "category": cfg["category"],
             "transitions": [normalize_phase_str(t) for t in cfg["transitions"]],
             "required_artifacts": cfg.get("required_artifacts", [])
@@ -120,9 +150,15 @@ def load_graph_config(workspace: str) -> Dict[str, Dict[str, Any]]:
 
 def check_phase_exit_requirements(workspace: str, phase_config: Dict[str, Any]):
     req_artifacts = phase_config.get("required_artifacts", [])
+    abs_workspace = os.path.abspath(workspace)
+    
     for artifact in req_artifacts:
-        artifact_path = os.path.join(workspace, artifact)
-        if not os.path.exists(artifact_path):
+        # Resolve resolved absolute paths to ensure workspace containment
+        abs_artifact = os.path.abspath(os.path.join(abs_workspace, artifact))
+        if not abs_artifact.startswith(abs_workspace + os.sep) and abs_artifact != abs_workspace:
+            raise ValueError(f"Transition denied: Artifact path '{artifact}' escapes the workspace directory boundaries.")
+            
+        if not os.path.exists(abs_artifact):
             raise ValueError(f"Transition denied: Phase exit requirement missing. Artifact '{artifact}' must exist.")
 
 def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str) -> str:
@@ -131,10 +167,14 @@ def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str
     to_p = normalize_phase_str(to_p)
     
     # 1. Load configuration (fails closed if transitions.yaml is invalid)
-    phases_config = load_graph_config(workspace)
+    graph_config = load_graph_config(workspace)
+    phases = graph_config["phases"]
+    initial_phase = graph_config["initial_phase"]
+    terminal_phase = graph_config["terminal_phase"]
+    sprint_target = graph_config["sprint_target"]
     
     # 2. Get current phase
-    current_phase = "1"
+    current_phase = initial_phase
     if state.ledger:
         current_phase = normalize_phase_str(state.ledger[-1].phase)
             
@@ -144,29 +184,30 @@ def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str
 
     # 3. Enforce budget modes during transitions
     if state.current_mode == "halt":
-        if to_p != "10":
-            raise ValueError(f"Transition denied: Current mode is 'halt' (budget exhausted). Cannot transition to Phase {to_p}. Run Phase 10 emergency reflection.")
+        if to_p != terminal_phase:
+            raise ValueError(f"Transition denied: Current mode is 'halt' (budget exhausted). Cannot transition to Phase {to_p}. Run emergency reflection transition to {terminal_phase}.")
     else:
         # Check targets in normal mode
-        phase_cfg = phases_config.get(from_p, {})
+        phase_cfg = phases.get(from_p, {})
         allowed = list(phase_cfg.get("transitions", []))
         
-        # Sprint escape edges: allows transitioning directly to Phase 7 (Mega-Plan) from current research phase
+        # Sprint escape edges: allows transitioning directly to sprint_target from current research phase
         if state.current_mode == "sprint":
-            if from_p in ["3.5", "4", "5", "6"] and to_p == "7":
-                allowed.append("7")
+            from_cfg = phases.get(from_p, {})
+            if from_cfg.get("category") == "research" and sprint_target in phases:
+                allowed.append(sprint_target)
                 
         if to_p not in allowed:
             raise ValueError(f"Transition from Phase {from_p} to Phase {to_p} is not allowed by the workflow graph schema.")
             
         # Sprint mode prohibits moving back into research phases
-        target_cfg = phases_config.get(to_p, {})
+        target_cfg = phases.get(to_p, {})
         if state.current_mode == "sprint" and target_cfg.get("category") == "research":
             raise ValueError(f"Transition denied: Current mode is 'sprint' (research prohibited). Cannot transition to research Phase {to_p}.")
 
     # 4. Check exit requirements of from_p (except in emergency halt mode)
-    if state.current_mode != "halt" and from_p in phases_config:
-        check_phase_exit_requirements(workspace, phases_config[from_p])
+    if state.current_mode != "halt" and from_p in phases:
+        check_phase_exit_requirements(workspace, phases[from_p])
 
     # 5. Approve transition and update ledger
     now_str = datetime.utcnow().isoformat() + "Z"
@@ -180,7 +221,7 @@ def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str
             
     # Add new phase entry to ledger
     new_iteration = state.ledger[-1].iteration + 1 if state.ledger else 0
-    category = phases_config.get(to_p, {}).get("category", "execution")
+    category = phases.get(to_p, {}).get("category", "execution")
     
     new_entry = LedgerEntry(
         iteration=new_iteration,

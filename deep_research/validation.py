@@ -70,6 +70,10 @@ def validate_session_state_schema(workspace: str) -> List[str]:
             
         # Verify ledger consistency
         graph_config = load_graph_config(workspace)
+        phases_map = graph_config.get("phases", {})
+        sprint_target = graph_config.get("sprint_target", "7")
+        terminal_phase = graph_config.get("terminal_phase", "10")
+        
         last_phase = None
         for i, entry in enumerate(state.ledger):
             if entry.iteration != i:
@@ -77,12 +81,13 @@ def validate_session_state_schema(workspace: str) -> List[str]:
             current_phase = entry.phase
             
             if i > 0 and last_phase is not None:
-                allowed_next = graph_config.get(last_phase, {}).get("transitions", [])
+                allowed_next = phases_map.get(last_phase, {}).get("transitions", [])
                 
-                # Check sprint mode bypasses: allows research phases to escape directly to Phase 7
-                is_sprint_bypass = (entry.mode == "sprint" and last_phase in ["3.5", "4", "5", "6"] and current_phase == "7")
-                # Check halt mode emergency reflections: allows any phase to escape to Phase 10
-                is_halt_bypass = (entry.mode == "halt" and current_phase == "10")
+                # Check sprint mode bypasses: allows research phases to escape directly to sprint_target
+                last_cfg = phases_map.get(last_phase, {})
+                is_sprint_bypass = (entry.mode == "sprint" and last_cfg.get("category") == "research" and current_phase == sprint_target)
+                # Check halt mode emergency reflections: allows any phase to escape to terminal_phase
+                is_halt_bypass = (entry.mode == "halt" and current_phase == terminal_phase)
                 
                 if not (is_sprint_bypass or is_halt_bypass or current_phase in allowed_next):
                     errors.append(f"Ledger transition error: phase {current_phase} is not an approved edge from phase {last_phase} in the active graph config")
