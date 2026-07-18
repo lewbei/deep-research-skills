@@ -113,19 +113,19 @@ def main():
                 
                 # Replace status, correlation strength, validation evidence
                 new_section = re.sub(
-                    r"- \*\*Status:\*\* [a-zA-Z]+\n",
+                    r"- \*\*Status:\*\* (.*?)\n",
                     f"- **Status:** {status}\n",
                     section_text
                 )
                 
                 obs_list_str = ", ".join([f"({o['proxy']},{o['true']})" for o in observations])
                 new_section = re.sub(
-                    r"- \*\*Validation evidence:\*\* [a-zA-Z ]*\n",
+                    r"- \*\*Validation evidence:\*\* (.*?)\n",
                     f"- **Validation evidence:** {obs_list_str if obs_list_str else 'none'}\n",
                     new_section
                 )
                 new_section = re.sub(
-                    r"- \*\*Correlation strength:\*\* [a-zA-Z0-9_:. ()-]*\n",
+                    r"- \*\*Correlation strength:\*\* (.*?)\n",
                     f"- **Correlation strength:** SPEARMAN r = {rho:.3f} ({status})\n",
                     new_section
                 )
