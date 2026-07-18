@@ -176,22 +176,33 @@ def check_phase_exit_requirements(workspace: str, phase_config: Dict[str, Any]):
         if not artifact_path.is_file():
             raise ValueError(f"Transition denied: Required artifact '{artifact}' must be a regular file.")
             
-        with open(artifact_path, "r", encoding="utf-8") as f:
-            content = f.read()
-            
-        # Enforce structured evidence validation (real content instead of just empty files or template placeholders)
-        if artifact == "unknowns-registry.md":
-            if "placeholder — replace with first real unknown" in content:
-                raise ValueError("Transition denied: 'unknowns-registry.md' still contains template placeholder. Extract and document the real unknowns.")
-        elif artifact == "probe-registry.md":
-            if not re.search(r"### P\d+:", content):
-                raise ValueError("Transition denied: 'probe-registry.md' must document at least one probe script (no '### P<id>:' entry found).")
-        elif artifact == "proxy-log.md":
-            if "placeholder — replace with first real proxy" in content:
-                raise ValueError("Transition denied: 'proxy-log.md' still contains template placeholder. Define and record actual proxy metrics.")
-        elif artifact == "mega-plan.md":
-            if "[Project Title]" in content:
-                raise ValueError("Transition denied: 'mega-plan.md' still contains template placeholder ([Project Title]). Document the project plan details.")
+        text_artifacts = {"unknowns-registry.md", "probe-registry.md", "proxy-log.md", "mega-plan.md"}
+        if artifact in text_artifacts:
+            with open(artifact_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                
+            # Enforce structured evidence completion heuristics
+            if artifact == "unknowns-registry.md":
+                if "placeholder — replace with first real unknown" in content:
+                    raise ValueError("Transition denied: 'unknowns-registry.md' still contains template placeholder. Extract and document the real unknowns.")
+            elif artifact == "probe-registry.md":
+                # Only require a probe if a provisional-high-risk unknown exists in unknowns-registry.md
+                has_high_risk = False
+                reg_path = root / "unknowns-registry.md"
+                if reg_path.exists():
+                    with open(reg_path, "r", encoding="utf-8") as rf:
+                        reg_content = rf.read()
+                    if "provisional-high-risk" in reg_content:
+                        has_high_risk = True
+                
+                if has_high_risk and not re.search(r"### P\d+:", content):
+                    raise ValueError("Transition denied: 'probe-registry.md' must document at least one probe script because a provisional-high-risk unknown exists.")
+            elif artifact == "proxy-log.md":
+                if "placeholder — replace with first real proxy" in content:
+                    raise ValueError("Transition denied: 'proxy-log.md' still contains template placeholder. Define and record actual proxy metrics.")
+            elif artifact == "mega-plan.md":
+                if "[Project Title]" in content:
+                    raise ValueError("Transition denied: 'mega-plan.md' still contains template placeholder ([Project Title]). Document the project plan details.")
 
 def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str) -> str:
     # Normalize inputs

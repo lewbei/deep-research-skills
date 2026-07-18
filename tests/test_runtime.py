@@ -502,14 +502,35 @@ class TestDeepResearchRuntime(unittest.TestCase):
         self.run_drs(["transition", "3.5", "4"])
         self.run_drs(["transition", "4", "5"])
         
-        # Reset probe-registry.md back to template placeholder text
+        # Force a provisional-high-risk unknown in unknowns-registry.md to make probe mandatory
+        with open(os.path.join(self.test_dir, "unknowns-registry.md"), "w", encoding="utf-8") as f:
+            f.write("# Unknowns Registry\n## Open unknowns\n- **Status:** provisional-high-risk\n- **Priority:** P0\n")
+            
+        # Reset probe-registry.md back to template placeholder text (no ### P<id>:)
         with open(os.path.join(self.test_dir, "probe-registry.md"), "w", encoding="utf-8") as f:
             f.write("# Probe Registry\n## Pending probes\n<!-- Add pending probes here. -->\n")
             
-        # Attempt transition 5 -> 6 (must fail because probe-registry.md has no real probes defined)
+        # Attempt transition 5 -> 6 (must fail because probe-registry.md has no real probes defined and high-risk exists)
         res_probe_fail = self.run_drs(["transition", "5", "6"])
         self.assertNotEqual(res_probe_fail.returncode, 0)
         self.assertIn("must document at least one probe script", res_probe_fail.stderr)
+        
+        # 12. Binary custom artifacts should not raise decode errors
+        self.run_drs(["init"])
+        self.clear_placeholders()
+        with open(yaml_path, "w") as f:
+            f.write("initial_phase: '1'\nterminal_phase: '2'\nsprint_target: '2'\nphases:\n  '1':\n    category: research\n    transitions: ['2']\n    required_artifacts: ['binary.bin']\n  '2':\n    category: execution\n    transitions: []\n")
+            
+        # Write non-UTF-8 binary bytes to binary.bin
+        with open(os.path.join(self.test_dir, "binary.bin"), "wb") as f:
+            f.write(b"\x80\x81\xff\x00\x01\x02")
+            
+        res_binary_trans = self.run_drs(["transition", "1", "2"])
+        self.assertEqual(res_binary_trans.returncode, 0, res_binary_trans.stderr)
+        
+        # Clean up binary file and custom transitions
+        os.remove(os.path.join(self.test_dir, "binary.bin"))
+        os.remove(yaml_path)
 
 if __name__ == "__main__":
     unittest.main()
