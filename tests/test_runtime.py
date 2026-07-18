@@ -479,7 +479,7 @@ class TestDeepResearchRuntime(unittest.TestCase):
         self.assertIn("does not match graph initial_phase", res_ledger_fail.stdout + res_ledger_fail.stderr)
         self.assertIn("category 'execution' does not match graph category", res_ledger_fail.stdout + res_ledger_fail.stderr)
 
-        # 11. Enforce structured evidence validation (phase completion vs artifact presence)
+        # 11. Enforce completion heuristics (phase completion vs artifact presence)
         # Delete templates to force fresh copy containing placeholders
         for t in ["unknowns-registry.md", "mega-plan.md", "probe-registry.md", "proxy-log.md"]:
             path = os.path.join(self.test_dir, t)
@@ -502,15 +502,49 @@ class TestDeepResearchRuntime(unittest.TestCase):
         self.run_drs(["transition", "3.5", "4"])
         self.run_drs(["transition", "4", "5"])
         
-        # Force a provisional-high-risk unknown in unknowns-registry.md to make probe mandatory
+        # 11.1. No high-risk open entry + empty probe registry -> succeeds
+        # Populating unknowns-registry with P3 open unknown (not high risk) and empty probe registry
         with open(os.path.join(self.test_dir, "unknowns-registry.md"), "w", encoding="utf-8") as f:
-            f.write("# Unknowns Registry\n## Open unknowns\n- **Status:** provisional-high-risk\n- **Priority:** P0\n")
-            
-        # Reset probe-registry.md back to template placeholder text (no ### P<id>:)
+            f.write("# Unknowns Registry\n## Open unknowns\n- **Status:** open\n- **Priority:** P3\n## Answered unknowns\n")
         with open(os.path.join(self.test_dir, "probe-registry.md"), "w", encoding="utf-8") as f:
             f.write("# Probe Registry\n## Pending probes\n<!-- Add pending probes here. -->\n")
             
-        # Attempt transition 5 -> 6 (must fail because probe-registry.md has no real probes defined and high-risk exists)
+        res_probe_ok1 = self.run_drs(["transition", "5", "6"])
+        self.assertEqual(res_probe_ok1.returncode, 0, res_probe_ok1.stderr)
+        
+        # Rollback transition 5 -> 6 by modifying state to run next tests
+        with open(state_path, "r") as f:
+            state = json.load(f)
+        if state["ledger"] and state["ledger"][-1]["phase"] == "6":
+            state["ledger"].pop()
+            state["ledger"][-1]["end_iso"] = None
+        with open(state_path, "w") as f:
+            json.dump(state, f)
+
+        # 11.2. High-risk entry under Answered unknowns + empty probe registry -> succeeds
+        with open(os.path.join(self.test_dir, "unknowns-registry.md"), "w", encoding="utf-8") as f:
+            f.write("# Unknowns Registry\n## Open unknowns\n- **Status:** open\n- **Priority:** P3\n## Answered unknowns\n- **Status:** provisional-high-risk\n")
+        with open(os.path.join(self.test_dir, "probe-registry.md"), "w", encoding="utf-8") as f:
+            f.write("# Probe Registry\n## Pending probes\n<!-- Add pending probes here. -->\n")
+            
+        res_probe_ok2 = self.run_drs(["transition", "5", "6"])
+        self.assertEqual(res_probe_ok2.returncode, 0, res_probe_ok2.stderr)
+
+        # Rollback transition 5 -> 6 by modifying state
+        with open(state_path, "r") as f:
+            state = json.load(f)
+        if state["ledger"] and state["ledger"][-1]["phase"] == "6":
+            state["ledger"].pop()
+            state["ledger"][-1]["end_iso"] = None
+        with open(state_path, "w") as f:
+            json.dump(state, f)
+
+        # 11.3. High-risk entry under Open unknowns + empty probe registry -> fails
+        with open(os.path.join(self.test_dir, "unknowns-registry.md"), "w", encoding="utf-8") as f:
+            f.write("# Unknowns Registry\n## Open unknowns\n- **Status:** provisional-high-risk\n- **Priority:** P0\n## Answered unknowns\n")
+        with open(os.path.join(self.test_dir, "probe-registry.md"), "w", encoding="utf-8") as f:
+            f.write("# Probe Registry\n## Pending probes\n<!-- Add pending probes here. -->\n")
+            
         res_probe_fail = self.run_drs(["transition", "5", "6"])
         self.assertNotEqual(res_probe_fail.returncode, 0)
         self.assertIn("must document at least one probe script", res_probe_fail.stderr)

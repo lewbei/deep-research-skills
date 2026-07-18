@@ -159,6 +159,24 @@ def load_graph_config(workspace: str) -> Dict[str, Any]:
         }
     return normalized_defaults
 
+def has_open_high_risk_unknown(registry_content: str) -> bool:
+    # Find the ## Open unknowns section up to the next heading or divider
+    section_match = re.search(
+        r"^## Open unknowns\s*\r?\n(?P<section>.*?)(?=^---\s*$|^## Answered unknowns\s*$|^## )",
+        registry_content,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if not section_match:
+        return False
+    open_section = section_match.group("section")
+    return bool(
+        re.search(
+            r"^-\s+\*\*Status:\*\*\s*provisional-high-risk\s*\r?$",
+            open_section,
+            flags=re.MULTILINE,
+        )
+    )
+
 def check_phase_exit_requirements(workspace: str, phase_config: Dict[str, Any]):
     req_artifacts = phase_config.get("required_artifacts", [])
     root = Path(workspace).resolve()
@@ -181,7 +199,7 @@ def check_phase_exit_requirements(workspace: str, phase_config: Dict[str, Any]):
             with open(artifact_path, "r", encoding="utf-8") as f:
                 content = f.read()
                 
-            # Enforce structured evidence completion heuristics
+            # Enforce completion heuristics
             if artifact == "unknowns-registry.md":
                 if "placeholder — replace with first real unknown" in content:
                     raise ValueError("Transition denied: 'unknowns-registry.md' still contains template placeholder. Extract and document the real unknowns.")
@@ -192,7 +210,7 @@ def check_phase_exit_requirements(workspace: str, phase_config: Dict[str, Any]):
                 if reg_path.exists():
                     with open(reg_path, "r", encoding="utf-8") as rf:
                         reg_content = rf.read()
-                    if "provisional-high-risk" in reg_content:
+                    if has_open_high_risk_unknown(reg_content):
                         has_high_risk = True
                 
                 if has_high_risk and not re.search(r"### P\d+:", content):
