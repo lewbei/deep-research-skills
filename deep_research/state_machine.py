@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import sys
 import yaml
 import re
@@ -60,6 +61,16 @@ def validate_graph_schema(phases_data: Dict[str, Any], initial_phase: str, termi
         raise ValueError(f"Graph schema terminal_phase '{terminal_phase}' does not exist in defined phases.")
     if sprint_target not in all_phases:
         raise ValueError(f"Graph schema sprint_target '{sprint_target}' does not exist in defined phases.")
+        
+    terminal_key = normalized_keys[terminal_phase]
+    terminal_cfg = phases_data[terminal_key]
+    if terminal_cfg.get("transitions"):
+        raise ValueError(f"terminal_phase '{terminal_phase}' must have no outgoing transitions.")
+        
+    sprint_key = normalized_keys[sprint_target]
+    sprint_cfg = phases_data[sprint_key]
+    if sprint_cfg.get("category", "execution") != "execution":
+        raise ValueError(f"sprint_target '{sprint_target}' must have category 'execution'.")
         
     has_terminal = False
     for phase_name, cfg in phases_data.items():
@@ -150,16 +161,37 @@ def load_graph_config(workspace: str) -> Dict[str, Any]:
 
 def check_phase_exit_requirements(workspace: str, phase_config: Dict[str, Any]):
     req_artifacts = phase_config.get("required_artifacts", [])
-    abs_workspace = os.path.abspath(workspace)
+    root = Path(workspace).resolve()
     
     for artifact in req_artifacts:
-        # Resolve resolved absolute paths to ensure workspace containment
-        abs_artifact = os.path.abspath(os.path.join(abs_workspace, artifact))
-        if not abs_artifact.startswith(abs_workspace + os.sep) and abs_artifact != abs_workspace:
+        try:
+            artifact_path = (root / artifact).resolve(strict=False)
+            artifact_path.relative_to(root)
+        except ValueError:
             raise ValueError(f"Transition denied: Artifact path '{artifact}' escapes the workspace directory boundaries.")
             
-        if not os.path.exists(abs_artifact):
+        if not artifact_path.exists():
             raise ValueError(f"Transition denied: Phase exit requirement missing. Artifact '{artifact}' must exist.")
+            
+        if not artifact_path.is_file():
+            raise ValueError(f"Transition denied: Required artifact '{artifact}' must be a regular file.")
+            
+        with open(artifact_path, "r", encoding="utf-8") as f:
+            content = f.read()
+            
+        # Enforce structured evidence validation (real content instead of just empty files or template placeholders)
+        if artifact == "unknowns-registry.md":
+            if "placeholder — replace with first real unknown" in content:
+                raise ValueError("Transition denied: 'unknowns-registry.md' still contains template placeholder. Extract and document the real unknowns.")
+        elif artifact == "probe-registry.md":
+            if not re.search(r"### P\d+:", content):
+                raise ValueError("Transition denied: 'probe-registry.md' must document at least one probe script (no '### P<id>:' entry found).")
+        elif artifact == "proxy-log.md":
+            if "placeholder — replace with first real proxy" in content:
+                raise ValueError("Transition denied: 'proxy-log.md' still contains template placeholder. Define and record actual proxy metrics.")
+        elif artifact == "mega-plan.md":
+            if "[Project Title]" in content:
+                raise ValueError("Transition denied: 'mega-plan.md' still contains template placeholder ([Project Title]). Document the project plan details.")
 
 def transition_phase(workspace: str, state: SessionState, from_p: str, to_p: str) -> str:
     # Normalize inputs

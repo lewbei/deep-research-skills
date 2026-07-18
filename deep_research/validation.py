@@ -71,14 +71,28 @@ def validate_session_state_schema(workspace: str) -> List[str]:
         # Verify ledger consistency
         graph_config = load_graph_config(workspace)
         phases_map = graph_config.get("phases", {})
+        initial_phase = graph_config.get("initial_phase", "1")
         sprint_target = graph_config.get("sprint_target", "7")
         terminal_phase = graph_config.get("terminal_phase", "10")
+        
+        if state.ledger:
+            first_entry = state.ledger[0]
+            if first_entry.phase != initial_phase:
+                errors.append(f"Ledger error: Initial ledger entry phase '{first_entry.phase}' does not match graph initial_phase '{initial_phase}'")
         
         last_phase = None
         for i, entry in enumerate(state.ledger):
             if entry.iteration != i:
                 errors.append(f"Ledger inconsistency: iteration index {entry.iteration} does not match slot {i}")
             current_phase = entry.phase
+            
+            # Verify phase is defined in active graph
+            if current_phase not in phases_map:
+                errors.append(f"Ledger error: phase '{current_phase}' does not exist in the active graph config")
+            else:
+                expected_cat = phases_map[current_phase].get("category", "execution")
+                if entry.category != expected_cat:
+                    errors.append(f"Ledger error: phase '{current_phase}' category '{entry.category}' does not match graph category '{expected_cat}'")
             
             if i > 0 and last_phase is not None:
                 allowed_next = phases_map.get(last_phase, {}).get("transitions", [])

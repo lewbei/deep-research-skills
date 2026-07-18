@@ -27,6 +27,45 @@ class TestDeepResearchRuntime(unittest.TestCase):
         result = subprocess.run([sys.executable, "-m", "deep_research.cli"] + args, cwd=cwd, env=env, capture_output=True, text=True)
         return result
 
+    def clear_placeholders(self):
+        # Clear unknowns-registry placeholder
+        registry_path = os.path.join(self.test_dir, "unknowns-registry.md")
+        if os.path.exists(registry_path):
+            with open(registry_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            content = content.replace("placeholder — replace with first real unknown", "Real unknown U1 description")
+            with open(registry_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                
+        # Clear mega-plan placeholder
+        plan_path = os.path.join(self.test_dir, "mega-plan.md")
+        if os.path.exists(plan_path):
+            with open(plan_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            content = content.replace("[Project Title]", "Real Project Title")
+            with open(plan_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                
+        # Clear probe-registry placeholder
+        probe_path = os.path.join(self.test_dir, "probe-registry.md")
+        if os.path.exists(probe_path):
+            with open(probe_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            # Append a mock probe definition to Pending Probes section
+            content = content.replace("<!-- Add pending probes here. The orchestrator runs these before any Phase 8 implementation step. -->", 
+                                      "### P1: Real test script\n- **Status:** pending\n- **Probe path:** probes/test.py")
+            with open(probe_path, "w", encoding="utf-8") as f:
+                f.write(content)
+                
+        # Clear proxy-log placeholder
+        proxy_path = os.path.join(self.test_dir, "proxy-log.md")
+        if os.path.exists(proxy_path):
+            with open(proxy_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            content = content.replace("placeholder — replace with first real proxy", "Real proxy PX1 description")
+            with open(proxy_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
     def test_01_initialization(self):
         # Run `./drs init`
         res = self.run_drs(["init", "--total-minutes", "60", "--kind", "hard"])
@@ -68,6 +107,7 @@ class TestDeepResearchRuntime(unittest.TestCase):
     def test_02_phase_transitions(self):
         # Initialize
         self.run_drs(["init"])
+        self.clear_placeholders()
 
         # Legal: Phase 1 -> Phase 2
         res = self.run_drs(["transition", "1", "2"])
@@ -96,6 +136,7 @@ class TestDeepResearchRuntime(unittest.TestCase):
     def test_03_time_budget_calculations(self):
         # Initialize
         self.run_drs(["init", "--total-minutes", "10"])
+        self.clear_placeholders()
 
         # Advance to 3.5 and calculate budget
         self.run_drs(["transition", "1", "2"])
@@ -195,6 +236,7 @@ class TestDeepResearchRuntime(unittest.TestCase):
 
         # 2. Test sprint mode escape transition to Phase 7
         self.run_drs(["init"])
+        self.clear_placeholders()
         state_path = os.path.join(self.test_dir, ".deep-research", "session-state.json")
         with open(state_path, "r") as f:
             state = json.load(f)
@@ -253,6 +295,7 @@ class TestDeepResearchRuntime(unittest.TestCase):
     def test_09_regression_tests(self):
         # 1. Halt mode bypass when exit gate artifact is missing
         self.run_drs(["init"])
+        self.clear_placeholders()
         state_path = os.path.join(self.test_dir, ".deep-research", "session-state.json")
         
         # Delete required artifact for phase 1 (unknowns-registry.md)
@@ -276,6 +319,7 @@ class TestDeepResearchRuntime(unittest.TestCase):
 
         # 2. Incorrect from_p during halt fails
         self.run_drs(["init"])
+        self.clear_placeholders()
         with open(state_path, "r") as f:
             state = json.load(f)
         state["current_mode"] = "halt"
@@ -305,6 +349,7 @@ class TestDeepResearchRuntime(unittest.TestCase):
         # Clean up custom transitions to reset
         os.remove(yaml_path)
         self.run_drs(["init"])
+        self.clear_placeholders()
         
         # Custom YAML with floats as keys/targets, defining phase metadata
         with open(yaml_path, "w") as f:
@@ -333,6 +378,7 @@ class TestDeepResearchRuntime(unittest.TestCase):
         
         # Custom YAML directory escape check (required artifact tries to traverse outside workspace)
         self.run_drs(["init"])
+        self.clear_placeholders()
         with open(yaml_path, "w") as f:
             f.write("initial_phase: '1'\nterminal_phase: '2'\nsprint_target: '2'\nphases:\n  '1':\n    category: research\n    transitions: ['2']\n    required_artifacts: ['../outside.txt']\n  '2':\n    category: execution\n    transitions: []\n")
         res_escape_gate = self.run_drs(["transition", "1", "2"])
@@ -361,6 +407,109 @@ class TestDeepResearchRuntime(unittest.TestCase):
             f.write(b"---\r\nname: mock_skill\r\ndescription: Mock\r\n---\r\nContent\r\n")
         res_crlf = self.run_drs(["validate"])
         self.assertEqual(res_crlf.returncode, 0, res_crlf.stderr)
+
+        # 6. Terminal phase must be terminal validator check
+        with open(yaml_path, "w") as f:
+            f.write("initial_phase: '1'\nterminal_phase: '1'\nsprint_target: '2'\nphases:\n  '1':\n    category: research\n    transitions: ['2']\n  '2':\n    category: execution\n    transitions: []\n")
+        res_term_fail = self.run_drs(["validate"])
+        self.assertNotEqual(res_term_fail.returncode, 0)
+        self.assertIn("must have no outgoing transitions", res_term_fail.stderr + res_term_fail.stdout)
+
+        # 7. Sprint target must be category execution validator check
+        with open(yaml_path, "w") as f:
+            f.write("initial_phase: '1'\nterminal_phase: '2'\nsprint_target: '1'\nphases:\n  '1':\n    category: research\n    transitions: ['2']\n  '2':\n    category: execution\n    transitions: []\n")
+        res_sprint_fail = self.run_drs(["validate"])
+        self.assertNotEqual(res_sprint_fail.returncode, 0)
+        self.assertIn("must have category 'execution'", res_sprint_fail.stderr + res_sprint_fail.stdout)
+
+        # Clean up config to restore normal state
+        os.remove(yaml_path)
+
+        # 8. Directory as artifact fails exit requirements
+        self.run_drs(["init"])
+        self.clear_placeholders()
+        with open(yaml_path, "w") as f:
+            f.write("initial_phase: '1'\nterminal_phase: '2'\nsprint_target: '2'\nphases:\n  '1':\n    category: research\n    transitions: ['2']\n    required_artifacts: ['my_dir']\n  '2':\n    category: execution\n    transitions: []\n")
+        
+        # Create directory instead of regular file
+        os.makedirs(os.path.join(self.test_dir, "my_dir"), exist_ok=True)
+        res_dir_art = self.run_drs(["transition", "1", "2"])
+        self.assertNotEqual(res_dir_art.returncode, 0)
+        self.assertIn("must be a regular file", res_dir_art.stderr)
+        
+        # Clean up directory and config
+        shutil.rmtree(os.path.join(self.test_dir, "my_dir"))
+        os.remove(yaml_path)
+
+        # 9. Symlink containment escape check
+        self.run_drs(["init"])
+        self.clear_placeholders()
+        with open(yaml_path, "w") as f:
+            f.write("initial_phase: '1'\nterminal_phase: '2'\nsprint_target: '2'\nphases:\n  '1':\n    category: research\n    transitions: ['2']\n    required_artifacts: ['escape_symlink']\n  '2':\n    category: execution\n    transitions: []\n")
+        
+        # Create a symlink pointing to a file outside the workspace
+        outside_file = tempfile.mktemp()
+        with open(outside_file, "w") as f:
+            f.write("outside")
+        os.symlink(outside_file, os.path.join(self.test_dir, "escape_symlink"))
+        
+        res_sym_escape = self.run_drs(["transition", "1", "2"])
+        self.assertNotEqual(res_sym_escape.returncode, 0)
+        self.assertIn("escapes the workspace directory boundaries", res_sym_escape.stderr)
+        
+        # Clean up symlink, outside file, and config
+        os.remove(os.path.join(self.test_dir, "escape_symlink"))
+        os.remove(outside_file)
+        os.remove(yaml_path)
+
+        # 10. Ledger initial phase matching and category validation
+        self.run_drs(["init"])
+        self.clear_placeholders()
+        with open(state_path, "r") as f:
+            state = json.load(f)
+            
+        # Corrupt first ledger phase and category
+        state["ledger"][0]["phase"] = "2"
+        state["ledger"][0]["category"] = "execution"
+        with open(state_path, "w") as f:
+            json.dump(state, f)
+            
+        res_ledger_fail = self.run_drs(["validate"])
+        self.assertNotEqual(res_ledger_fail.returncode, 0)
+        self.assertIn("does not match graph initial_phase", res_ledger_fail.stdout + res_ledger_fail.stderr)
+        self.assertIn("category 'execution' does not match graph category", res_ledger_fail.stdout + res_ledger_fail.stderr)
+
+        # 11. Enforce structured evidence validation (phase completion vs artifact presence)
+        # Delete templates to force fresh copy containing placeholders
+        for t in ["unknowns-registry.md", "mega-plan.md", "probe-registry.md", "proxy-log.md"]:
+            path = os.path.join(self.test_dir, t)
+            if os.path.exists(path):
+                os.remove(path)
+        self.run_drs(["init"])
+        
+        # Transition 1 -> 2 fails immediately after init because unknowns-registry.md still has placeholder!
+        res_place_fail = self.run_drs(["transition", "1", "2"])
+        self.assertNotEqual(res_place_fail.returncode, 0)
+        self.assertIn("still contains template placeholder", res_place_fail.stderr)
+        
+        # Now clear placeholders for unknowns-registry to allow advancing to 3.5 -> 4 -> 5
+        self.clear_placeholders()
+        
+        # Advance state to Phase 5
+        self.run_drs(["transition", "1", "2"])
+        self.run_drs(["transition", "2", "3"])
+        self.run_drs(["transition", "3", "3.5"])
+        self.run_drs(["transition", "3.5", "4"])
+        self.run_drs(["transition", "4", "5"])
+        
+        # Reset probe-registry.md back to template placeholder text
+        with open(os.path.join(self.test_dir, "probe-registry.md"), "w", encoding="utf-8") as f:
+            f.write("# Probe Registry\n## Pending probes\n<!-- Add pending probes here. -->\n")
+            
+        # Attempt transition 5 -> 6 (must fail because probe-registry.md has no real probes defined)
+        res_probe_fail = self.run_drs(["transition", "5", "6"])
+        self.assertNotEqual(res_probe_fail.returncode, 0)
+        self.assertIn("must document at least one probe script", res_probe_fail.stderr)
 
 if __name__ == "__main__":
     unittest.main()
