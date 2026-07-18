@@ -1,5 +1,9 @@
 # deep-research-skills
 
+[![License: MIT](https://img.shields.shields.shields.shields.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![PRs Welcome](https://img.shields.shields.shields.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](CONTRIBUTING.md)
+[![Workflow](https://img.shields.shields.shields.shields.io/badge/Workflow-Interleaved--Research-orange.svg)](skills/research-loop/docs/research-workflow.md)
+
 An operationalized, time-aware **interleaved deep-research and execution workflow** for Devin and Antigravity agents. Designed specifically for time-constrained competitions, hackathons, and research-heavy tasks.
 
 Unlike naive upfront-research loops, this repository implements a continuous **research → execute 1 step → learn → repeat** cycle driven by a persistent unknowns registry.
