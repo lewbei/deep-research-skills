@@ -1,0 +1,6 @@
+{
+  "name": "deep-research",
+  "version": "0.1.0",
+  "description": "Iterative deep-research workflow for competition, hackathon, and research-heavy tasks. Research → execute 1 step → research again, with persistent unknowns tracking.",
+  "keywords": ["research", "competition", "kaggle", "hackathon", "planning", "mcts"]
+}

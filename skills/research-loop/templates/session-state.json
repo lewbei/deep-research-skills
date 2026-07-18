@@ -1,0 +1,31 @@
+{
+  "session_id": "<uuid>",
+  "started_at": "<ISO-8601>",
+  "last_updated_at": "<ISO-8601>",
+  "budget": {
+    "total_minutes": 120,
+    "kind": "soft",
+    "research_percent": 40,
+    "execution_percent": 60
+  },
+  "ledger": [
+    {
+      "iteration": 0,
+      "phase": 1,
+      "start_iso": "<ISO-8601>",
+      "end_iso": "<ISO-8601>",
+      "duration_minutes": 0,
+      "category": "research",
+      "mode": "explore"
+    }
+  ],
+  "current_mode": "explore",
+  "thresholds_reached": {
+    "25": false,
+    "50": false,
+    "75": false,
+    "90": false,
+    "100": false
+  },
+  "extensions": []
+}
