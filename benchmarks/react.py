@@ -5,37 +5,23 @@ from pathlib import Path
 from typing import Dict, Any, List
 from benchmarks.llm import query_llm
 from benchmarks.search import web_search
-
-_TOOL_JSON_RE = re.compile(
-    r'\{\s*"tool"\s*:\s*"(\w+)"\s*,\s*"arguments"\s*:\s*(\{.*?\})\s*\}',
-    re.DOTALL
-)
-
-def _parse_action(response: str):
-    """
-    Parse a JSON tool-call block of the form:
-      {"tool": "ToolName", "arguments": {"key": "value", ...}}
-    Returns (tool_name, arguments_dict) or (None, None).
-    """
-    m = _TOOL_JSON_RE.search(response)
-    if not m:
-        return None, None
-    tool_name = m.group(1)
-    try:
-        args = eval(m.group(2))   # safe: we already validated structure via regex
-    except Exception:
-        return None, None
-    return tool_name, args
+from benchmarks.action_parser import parse_action
 
 
 class ReactAgent:
     """
-    A research agent that follows a Thought → Action → Observation loop.
+    Research agent following a Thought → Action → Observation loop.
 
     Completion requirements:
-      - Must perform >= min_search_calls web searches before submitting a report.
-      - Reports submitted without enough searches are classified as
-        "incomplete_no_search" and are NOT forwarded to the quality judge.
+      - Must perform >= MIN_SEARCH_CALLS web searches before submitting.
+      - Reports submitted without enough searches → status='incomplete_no_search'.
+      - Max steps exceeded without Respond → status='timeout'.
+      - Wall-clock deadline exceeded → status='budget_exceeded'.
+
+    Tool-call format (fenced JSON block):
+      ```json
+      {"tool": "Search", "arguments": {"query": "..."}}
+      ```
     """
 
     MIN_SEARCH_CALLS = 2
@@ -49,44 +35,35 @@ class ReactAgent:
         max_steps: int = 15,
         wall_clock_budget: float = 600.0,
     ) -> Dict[str, Any]:
-        """
-        Runs the ReAct loop on the given prompt.
-
-        Parameters
-        ----------
-        prompt            : research task
-        max_steps         : maximum model turns before forcing termination
-        wall_clock_budget : hard deadline in seconds; run is aborted if exceeded
-        """
         deadline = time.monotonic() + wall_clock_budget
 
         system_instruction = (
-            "You are a deep research agent. You MUST research the user's topic and write "
-            "a comprehensive, detailed, objective report. You have access to these tools:\n\n"
-            "  1. Search   — search the web for information\n"
-            "  2. Read     — read a local file\n"
-            "  3. Respond  — submit your final report (only when you have done enough research)\n\n"
-            "You MUST perform at least two web searches before submitting your report. "
-            "Submit your final answer using Respond only after gathering enough evidence.\n\n"
-            "Respond using EXACTLY ONE JSON block per turn:\n"
+            "You are a deep research agent. You MUST research the user's topic "
+            "thoroughly and produce a comprehensive, well-cited report.\n\n"
+            "You have access to these tools:\n"
+            "  Search  — search the web\n"
+            "  Read    — read a local file\n"
+            "  Respond — submit your final report (only after ≥2 searches)\n\n"
+            "You MUST perform at least two web searches before submitting.\n\n"
+            "Each turn: write your reasoning, then output EXACTLY ONE fenced JSON block:\n"
             "```json\n"
-            '{"tool": "Search", "arguments": {"query": "your query here"}}\n'
+            '{"tool": "Search", "arguments": {"query": "your query"}}\n'
             "```\n"
-            "or\n"
             "```json\n"
             '{"tool": "Read", "arguments": {"path": "filename.md"}}\n'
             "```\n"
-            "or\n"
             "```json\n"
             '{"tool": "Respond", "arguments": {"report": "your full report here"}}\n'
             "```\n\n"
-            "Always include your reasoning BEFORE the JSON block. "
-            "Do NOT output placeholders."
+            "Do NOT output placeholders. Do NOT submit without searching first."
         )
 
         history: List[str] = []
         action_trajectory: List[Dict] = []
-        current_prompt = f"Objective: {prompt}\n\nBegin. State your research plan, then call your first tool."
+        current_prompt = (
+            f"Objective: {prompt}\n\n"
+            "State your research plan, then call your first Search tool."
+        )
 
         metrics = {
             "search_calls": 0,
@@ -98,105 +75,104 @@ class ReactAgent:
             "tokens_estimated": 0,
         }
 
-        def _budget_exceeded() -> bool:
-            return time.monotonic() >= deadline
+        def _remaining() -> float:
+            return deadline - time.monotonic()
+
+        def _budget_ok() -> bool:
+            return time.monotonic() < deadline
 
         for step in range(max_steps):
-            if _budget_exceeded():
-                return {
-                    "report": "",
-                    "metrics": metrics,
-                    "tool_calls": metrics["search_calls"] + metrics["read_calls"],
-                    "action_trajectory": action_trajectory,
-                    "status": "budget_exceeded",
-                }
+            if not _budget_ok():
+                return self._result("", metrics, action_trajectory, "budget_exceeded")
 
             chat_context = current_prompt
             if history:
                 chat_context = current_prompt + "\n\n" + "\n".join(history)
 
+            remaining = _remaining()
             try:
                 metrics["model_calls"] += 1
-                response = query_llm(chat_context, system_instruction=system_instruction, model=self.model)
+                response = query_llm(
+                    chat_context,
+                    system_instruction=system_instruction,
+                    model=self.model,
+                    timeout=min(90.0, remaining),
+                )
                 metrics["tokens_estimated"] += (len(chat_context) + len(response)) // 4
             except Exception as e:
-                return {
-                    "report": "",
-                    "metrics": metrics,
-                    "tool_calls": metrics["search_calls"] + metrics["read_calls"],
-                    "action_trajectory": action_trajectory,
-                    "status": "failed",
-                }
+                return self._result("", metrics, action_trajectory, "failed")
 
             history.append(response)
 
-            tool_name, args = _parse_action(response)
+            tool_name, args = parse_action(response)
             if tool_name is None:
                 history.append(
-                    'System: Invalid format. You must output exactly one JSON tool-call block.\n'
-                    'Example: {"tool": "Search", "arguments": {"query": "..."}}'
+                    "System: Invalid format. Output exactly one fenced ```json block "
+                    'with keys "tool" and "arguments".\n'
+                    'Example: ```json\n{"tool": "Search", "arguments": {"query": "..."}}\n```'
                 )
                 continue
 
             action_trajectory.append({"step": step + 1, "tool": tool_name, "args": args})
-            print(f"[{step+1}] ReAct Action: {tool_name}({list(args.keys())})")
+            print(f"[{step+1}] ReAct: {tool_name}({list(args.keys())})")
 
             if tool_name == "Respond":
                 report_text = args.get("report", "")
                 if metrics["search_calls"] < self.MIN_SEARCH_CALLS:
-                    return {
-                        "report": report_text,
-                        "metrics": metrics,
-                        "tool_calls": metrics["search_calls"] + metrics["read_calls"],
-                        "action_trajectory": action_trajectory,
-                        "status": "incomplete_no_search",
-                    }
-                return {
-                    "report": report_text,
-                    "metrics": metrics,
-                    "tool_calls": metrics["search_calls"] + metrics["read_calls"],
-                    "action_trajectory": action_trajectory,
-                    "status": "success",
-                }
+                    return self._result(
+                        report_text, metrics, action_trajectory, "incomplete_no_search"
+                    )
+                return self._result(report_text, metrics, action_trajectory, "success")
 
             elif tool_name == "Search":
                 metrics["search_calls"] += 1
                 query = args.get("query", "")
-                search_results = web_search(query, max_results=5)
-                obs_parts = [
+                results = web_search(query, max_results=5)
+                parts = [
                     f"Title: {r['title']}\nLink: {r['link']}\nSnippet: {r['snippet']}\n---"
-                    for r in search_results
+                    for r in results
                 ]
-                observation = "\n".join(obs_parts) if obs_parts else "No results found."
-                history.append(f"Observation: {observation}")
+                history.append("Observation: " + ("\n".join(parts) or "No results found."))
 
             elif tool_name == "Read":
                 metrics["read_calls"] += 1
-                path = os.path.normpath(args.get("path", ""))
-                if path.startswith("..") or os.path.isabs(path):
-                    observation = "Error: Access denied (path traversal blocked)."
-                elif not os.path.exists(path):
-                    observation = f"Error: File '{path}' not found."
-                elif os.path.isdir(path):
-                    observation = f"Error: '{path}' is a directory."
-                else:
-                    try:
-                        with open(path, "r", encoding="utf-8") as f:
-                            observation = f.read()[:5000]
-                    except Exception as e:
-                        observation = f"Error reading file: {e}"
+                raw = args.get("path", "")
+                observation = self._safe_read(raw)
                 history.append(f"Observation: {observation}")
 
             else:
                 history.append(
-                    f"Observation: Unknown tool '{tool_name}'. Allowed tools: Search, Read, Respond."
+                    f"Observation: Unknown tool '{tool_name}'. "
+                    "Allowed: Search, Read, Respond."
                 )
 
-        # Max steps reached — do NOT auto-generate; the run is incomplete
+        return self._result("", metrics, action_trajectory, "timeout")
+
+    # ── helpers ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _safe_read(raw_path: str) -> str:
+        root = Path.cwd().resolve()
+        try:
+            target = (root / raw_path).resolve()
+            target.relative_to(root)  # raises ValueError on escape
+        except ValueError:
+            return "Error: path escapes workspace."
+        if not target.exists():
+            return f"Error: '{raw_path}' not found."
+        if target.is_dir():
+            return f"Error: '{raw_path}' is a directory."
+        try:
+            return target.read_text(encoding="utf-8")[:5000]
+        except Exception as e:
+            return f"Error reading file: {e}"
+
+    @staticmethod
+    def _result(report, metrics, trajectory, status):
         return {
-            "report": "",
+            "report": report,
             "metrics": metrics,
             "tool_calls": metrics["search_calls"] + metrics["read_calls"],
-            "action_trajectory": action_trajectory,
-            "status": "timeout",
+            "action_trajectory": trajectory,
+            "status": status,
         }

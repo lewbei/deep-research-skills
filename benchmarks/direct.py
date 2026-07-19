@@ -5,7 +5,7 @@ class DirectAgent:
     def __init__(self, model: str = "Gemini 3.5 Flash (Low)"):
         self.model = model
         
-    def run(self, prompt: str) -> Dict[str, Any]:
+    def run(self, prompt: str, wall_clock_budget: float = 720.0) -> Dict[str, Any]:
         """
         Queries the model directly exactly once without any tools.
         """

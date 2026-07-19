@@ -36,6 +36,38 @@ def _git_commit() -> str:
         return "unknown"
 
 
+def _git_dirty() -> bool:
+    """True if working tree has uncommitted changes."""
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(_REPO_DIR),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return bool(result.stdout.strip())
+    except Exception:
+        return False
+
+
+_HARNESS_FILES = [
+    "benchmarks/runner.py",
+    "benchmarks/react.py",
+    "benchmarks/drs.py",
+    "benchmarks/judge.py",
+    "benchmarks/action_parser.py",
+    "benchmarks/direct.py",
+]
+
+
+def _harness_sha256s() -> Dict[str, str]:
+    return {
+        f: _sha256(str(_REPO_DIR / f))
+        for f in _HARNESS_FILES
+    }
+
+
 def _sha256(path: str) -> str:
     try:
         h = hashlib.sha256()
@@ -53,12 +85,14 @@ def score_math(results: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     Positive criteria: add weight on MET.
     Negative criteria: subtract |weight| on UNMET (fell into pitfall).
-    Pass rate: fraction of criteria correctly handled (MET for positive, UNMET for negative).
+    JUDGE_ERROR criteria: excluded from scoring (not counted in pass rate or max_possible).
+    Pass rate: fraction of scoreable criteria correctly handled.
     """
     raw_score = 0.0
     max_possible = 0.0
     met_count = 0
-    total = len(results)
+    judge_error_count = 0
+    scoreable = 0
 
     axis_raw: Dict[str, float] = {}
     axis_max: Dict[str, float] = {}
@@ -69,6 +103,13 @@ def score_math(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         axis = res["axis"]
         axis_raw.setdefault(axis, 0.0)
         axis_max.setdefault(axis, 0.0)
+
+        # Skip JUDGE_ERROR — do not count toward score or pass rate
+        if verdict == "JUDGE_ERROR":
+            judge_error_count += 1
+            continue
+
+        scoreable += 1
 
         if weight > 0:
             max_possible += weight
@@ -90,7 +131,7 @@ def score_math(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         max(0.0, min(max_possible, raw_score)) / max_possible * 100.0
         if max_possible > 0 else 0.0
     )
-    pass_rate = met_count / total * 100.0 if total > 0 else 0.0
+    pass_rate = met_count / scoreable * 100.0 if scoreable > 0 else 0.0
 
     axis_scores = {
         axis: (
@@ -100,7 +141,13 @@ def score_math(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         for axis in axis_max
     }
 
-    return {"normalized_score": normalized, "pass_rate": pass_rate, "axis_scores": axis_scores}
+    return {
+        "normalized_score": normalized,
+        "pass_rate": pass_rate,
+        "axis_scores": axis_scores,
+        "judge_error_count": judge_error_count,
+        "scoreable_criteria": scoreable,
+    }
 
 
 def run_benchmarks(
@@ -117,11 +164,19 @@ def run_benchmarks(
 
     run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     git_commit = _git_commit()
+    git_dirty  = _git_dirty()
     task_file_sha = _sha256(tasks_path)
+    harness_shas  = _harness_sha256s()
+
+    if git_dirty:
+        print("WARNING: working tree has uncommitted changes — provenance is approximate.")
 
     print(f"Run ID   : {run_id}")
-    print(f"Git HEAD : {git_commit}")
+    print(f"Git HEAD : {git_commit}  (dirty={git_dirty})")
     print(f"Tasks SHA: {task_file_sha}")
+
+    # Equal wall-clock budget for every condition (12 min)
+    WALL_CLOCK_BUDGET = 720.0
 
     agents: Dict[str, Any] = {}
     if "direct" in conditions:
@@ -145,10 +200,13 @@ def run_benchmarks(
     run_config = {
         "run_id": run_id,
         "git_commit": git_commit,
+        "git_dirty": git_dirty,
+        "harness_files_sha256": harness_shas,
         "task_file": tasks_path,
         "task_file_sha256": task_file_sha,
         "conditions": conditions,
         "runs_per_condition": runs_per_condition,
+        "wall_clock_budget_seconds": WALL_CLOCK_BUDGET,
         "model": model,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
     }
@@ -165,7 +223,7 @@ def run_benchmarks(
             for run_idx in range(runs_per_condition):
                 print(f"\n---> {cond.upper()} run {run_idx+1}/{runs_per_condition}")
                 start = time.time()
-                out = agent.run(task.prompt)
+                out = agent.run(task.prompt, wall_clock_budget=WALL_CLOCK_BUDGET)
                 elapsed = time.time() - start
 
                 exec_status = out["status"]
@@ -173,7 +231,8 @@ def run_benchmarks(
 
                 # ── Level 1: Execution validity ──────────────────────────
                 if exec_status not in _VALID_STATUSES:
-                    scores = {"normalized_score": 0.0, "pass_rate": 0.0, "axis_scores": {}}
+                    scores = {"normalized_score": 0.0, "pass_rate": 0.0, "axis_scores": {},
+                              "judge_error_count": 0, "scoreable_criteria": 0}
                     judge_results: List[Dict] = []
                     print(f"     [SKIP JUDGE] status={exec_status} — output not forwarded to judge.")
                 else:
@@ -181,7 +240,9 @@ def run_benchmarks(
                     print("     Evaluating report with LLM judge...")
                     judge_results = judge.evaluate_all(out["report"], task.criteria)
                     scores = score_math(judge_results)
-                    print(f"     Score={scores['normalized_score']:.1f}%  PassRate={scores['pass_rate']:.1f}%")
+                    je = scores['judge_error_count']
+                    warn = f"  ⚠ {je} JUDGE_ERROR(s)" if je else ""
+                    print(f"     Score={scores['normalized_score']:.1f}%  PassRate={scores['pass_rate']:.1f}%{warn}")
 
                 run_record = {
                     # Reproducibility fields
