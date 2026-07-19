@@ -2,11 +2,12 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](CONTRIBUTING.md)
+[![CI](https://github.com/lewbei/deep-research-skills/actions/workflows/ci.yml/badge.svg)](https://github.com/lewbei/deep-research-skills/actions/workflows/ci.yml)
 [![Workflow](https://img.shields.io/badge/Workflow-Interleaved--Research-orange.svg)](.agents/skills/research-loop/docs/research-workflow.md)
 
-An operationalized, time-aware interleaved deep-research and execution workflow for Devin and Antigravity agents. Designed specifically for time-constrained competitions, hackathons, and research-heavy tasks.
+An operationalized, time-aware interleaved deep-research and execution workflow for Devin and Antigravity agents. Designed for time-constrained competitions, hackathons, and research-heavy tasks.
 
-Unlike naive upfront-research loops, this repository implements a continuous research -> execute 1 bounded unit of work -> learn -> repeat cycle driven by a persistent unknowns registry and enforced by a deterministic python state-machine runtime.
+Unlike naive upfront-research loops, this repository implements a continuous **research → execute 1 bounded unit → learn → repeat** cycle driven by a persistent unknowns registry and enforced by a deterministic Python state-machine runtime.
 
 ---
 
@@ -31,24 +32,118 @@ graph TD
 
 ## Key Features
 
-- **Time-Budget Pacing:** Continuously adjusts behavior (explore -> commit -> sprint -> last-stand -> halt) as the wall-clock time is consumed.
-- **Goodhart's Law Guardrails:** Prevents chasing fake proxies by validating process-reward metrics against real outcomes using Spearman rank correlation (requires at least 5 observations).
+- **Time-Budget Pacing:** Continuously adjusts behavior (explore → commit → sprint → last-stand → halt) as wall-clock time is consumed.
+- **Goodhart's Law Guardrails:** Prevents chasing fake proxies by validating process-reward metrics against real outcomes using Spearman rank correlation (requires ≥5 observations).
 - **Read-Only Subagents:** Prevents write-conflict state drift by keeping research subagents read-only and returning structured summaries to the orchestrator.
-- **Independent Verification:** Integrates a skeptical verification subagent that confirms all extracted claims against primary sources to significantly reduce source-claim drift and identify inconsistencies.
-- **Preventive & Reactive Escalation:** Outlines clear human-in-the-loop triggers (budget thresholds, plan divergence, flat progress) to ensure the human is notified before resource waste occurs.
+- **Independent Verification:** Integrates a skeptical verification subagent that confirms all extracted claims against primary sources.
+- **Preventive & Reactive Escalation:** Clear human-in-the-loop triggers (budget thresholds, plan divergence, flat progress).
 
 ---
 
-## Deterministic Control Layer (drs CLI Tool)
+## Deterministic Control Layer (drs CLI)
 
-To ensure the agent executes the workflow graph correctly and reliably, this repository provides a unified control layer packaged as a Python package (`deep_research`) with a command-line interface (`drs`):
+The `drs` CLI enforces the workflow graph correctly and reliably:
 
-- **drs init:** Pre-instantiates all core markdown templates, generates a unique session UUID, and sets up the session state JSON.
-- **drs status:** Tally elapsed pacing metrics and prints active phase, remaining time, and R/E budget consumption.
-- **drs transition <from> <to>:** Enforces graph transitions, checking transitions against transitions.yaml or default graph, and blocks research phases in sprint/halt modes.
-- **drs budget:** Updates elapsed time and changes active budget pacing mode.
-- **drs proxy <id> --add <val>:<true>:** Tracks proxy observations and runs a mathematically correct Spearman rank correlation to detect metric drift.
-- **drs validate:** Runs validation checks against all templates, skills frontmatter, and session state ledger integrity.
+| Command | Description |
+|---|---|
+| `drs init --total-minutes N --kind soft\|hard` | Bootstrap all templates and session state |
+| `drs status` | Print active phase, remaining time, R/E budget |
+| `drs transition <from> <to>` | Enforce graph transitions; block invalid jumps |
+| `drs budget` | Update elapsed time and pacing mode |
+| `drs proxy <id> --add <val>:<true\|false>` | Track proxy observations; run Spearman correlation |
+| `drs validate` | Check all templates, frontmatter, state ledger |
+
+---
+
+## A/B Evaluation Harness
+
+The `benchmarks/` package contains a scientific evaluation harness for comparing three research agent conditions:
+
+| Condition | Description |
+|---|---|
+| `direct` | Single zero-shot LLM call, no tools |
+| `react` | Thought→Action→Observation loop with web search (requires ≥2 searches) |
+| `drs` | Full DRS state-machine workflow via `drs` CLI + web search |
+
+### Running benchmarks
+
+```bash
+# Run all three conditions on the pilot task set
+python3 -m benchmarks.runner \
+  --tasks .agents/skills/evaluate/tasks/pilot_tasks.yaml \
+  --conditions direct,react,drs \
+  --runs 3 \
+  --model "Gemini 3.5 Flash (Low)" \
+  --run-id my-experiment-01
+
+# Run only direct vs react with a 10-minute budget per agent
+python3 -m benchmarks.runner \
+  --tasks benchmarks/smoke_task.yaml \
+  --conditions direct,react \
+  --budget 600
+```
+
+Each run saves to `evaluation_runs/<run-id>/`:
+- `run_config.json` — git commit, git dirty flag, harness file SHA-256s, task file SHA-256
+- `tasks.yaml` — snapshot of the exact task file used
+- `raw_runs.json` — per-run telemetry, action trajectory, judge verdicts, scores
+
+### Harness design guarantees
+
+| Property | Implementation |
+|---|---|
+| **No `eval()`** | All tool-call parsing uses `json.loads()` on fenced ` ```json ``` ` blocks |
+| **Phase-10 confirmation** | DRS success requires `drs status` to report Phase 10 AND `final-report.md` to pass structural checks |
+| **Three-state judge** | Verdicts are `MET`, `UNMET`, or `JUDGE_ERROR`; errors don't silently become `UNMET` |
+| **Equal budgets** | One `--budget` value (default 720 s) is passed identically to all agents |
+| **Dirty-tree warning** | `git status --porcelain` checked before every run; `git_dirty=true` recorded in config |
+| **Provenance** | SHA-256 of every harness file stored in `run_config.json` |
+| **Path sandbox** | All workspace reads/writes validated via `Path.relative_to()` — no string-prefix bypass |
+
+### Running harness regression tests
+
+```bash
+python3 benchmarks/test_harness.py
+```
+
+All 7 tests must pass before any benchmark data is trustworthy:
+
+```
+Test 1 (clean JSON block): PASS
+Test 2 (braces in report content): PASS
+Test 3 (old Action[] format rejected): PASS
+Test 4 (last block wins): PASS
+Test 5 (JUDGE_ERROR excluded from score): PASS
+Test 6 (path sandbox .relative_to()): PASS
+Test 7 (invalid JSON block skipped, valid block parsed): PASS
+```
+
+### Writing task files
+
+Task YAML format:
+
+```yaml
+- task_id: my-task-01
+  domain: technology
+  prompt: >
+    Compare approach A vs approach B for solving X.
+    Search the web for empirical comparisons.
+  criteria:
+    - text: "Mentions approach A by name"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Discusses a quantitative trade-off"
+      type: positive
+      axis: breadth_depth
+      weight: 15
+    - text: "Claims approach A has zero downsides (false)"
+      type: negative
+      axis: factual_accuracy
+      weight: -20
+```
+
+`type: negative` criteria use inverted scoring: verdict `MET` means the report **avoided** the pitfall (good); `UNMET` means it fell into it (penalty applied).
 
 ---
 
@@ -56,60 +151,51 @@ To ensure the agent executes the workflow graph correctly and reliably, this rep
 
 ```
 deep-research-skills/
-├── README.md                      # Project documentation
-├── LICENSE                        # License file
-├── CONTRIBUTING.md                # Contributing guidelines
-├── install.py                     # Installer script
-├── pyproject.toml                 # Package configuration metadata
+├── README.md
+├── LICENSE
+├── CONTRIBUTING.md
+├── pyproject.toml
 ├── drs                            # CLI executable wrapper
-├── deep_research/                 # Unified Python runtime package
-│   ├── models.py                  # Dataclasses and strict validation schemas
-│   ├── storage.py                 # Atomic storage and file utilities
-│   ├── state_machine.py           # Transition checker and graphs
-│   ├── budget.py                  # Time budget calculations
-│   ├── proxies.py                 # Spearman correlation rank math
-│   ├── validation.py              # Frontmatter and templates validators
-│   └── cli.py                     # CLI command line endpoints
+├── benchmarks/                    # A/B evaluation harness
+│   ├── action_parser.py           # Safe JSON tool-call parser
+│   ├── direct.py                  # Zero-shot baseline agent
+│   ├── react.py                   # ReAct agent (requires ≥2 searches)
+│   ├── drs.py                     # DRS state-machine agent
+│   ├── judge.py                   # Three-state LLM rubric judge
+│   ├── runner.py                  # Orchestrator + reporting
+│   ├── tasks.py                   # Task/criterion data classes + YAML loader
+│   ├── llm.py                     # agy CLI wrapper with timeout
+│   ├── search.py                  # Web search wrapper
+│   └── test_harness.py            # Regression tests (no API calls)
+├── deep_research/                 # DRS runtime package
+│   ├── models.py
+│   ├── storage.py
+│   ├── state_machine.py
+│   ├── budget.py
+│   ├── proxies.py
+│   ├── validation.py
+│   └── cli.py
 └── .agents/
-    └── skills/                    # Auto-discovered skills directory
-        ├── research-loop/
-        │   ├── SKILL.md           # Main orchestrator skill
-        │   ├── docs/
-        │   │   ├── research-workflow.md # Detailed workflow
-        │   │   └── mega-plan-guide.md   # Reference guide
-        │   └── templates/         # Core workflow templates
-        │       ├── unknowns-registry.md
-        │       ├── landscape-table.md
-        │       ├── hypothesis-tree.md
-        │       ├── decision-log.md
-        │       ├── archive.md
-        │       ├── probe-registry.md
-        │       ├── time-budget.md
-        │       ├── proxy-log.md
-        │       ├── human-escalation-policy.md
-        │       ├── session-state.json
-        │       └── mega-plan.md
+    └── skills/
+        ├── research-loop/         # Main orchestrator skill
         ├── landscape-scan/
-        │   └── SKILL.md           # Sweep subagent skill
         ├── deep-dive/
-        │   └── SKILL.md           # Deep-dive subagent skill
         └── verify/
-            └── SKILL.md           # Independent verifier skill
 ```
 
 ---
 
 ## Installation & Setup
 
-1. Install the CLI package in editable mode:
+1. Install the package (includes both `deep_research` and `benchmarks`):
    ```bash
    pip install -e .
    ```
-2. Run the installer script to place the skills in the correct auto-discovery location:
+2. Run the installer script to place skills in the auto-discovery location:
    ```bash
    python3 install.py
    ```
-3. Initialize the deep research session:
+3. Initialize a deep research session:
    ```bash
    drs init --total-minutes 120 --kind soft
    ```

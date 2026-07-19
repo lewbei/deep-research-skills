@@ -156,6 +156,7 @@ def run_benchmarks(
     runs_per_condition: int,
     model: str,
     run_id: Optional[str] = None,
+    wall_clock_budget: float = 720.0,
 ):
     tasks_path = str(Path(tasks_path).resolve())
     print(f"Loading tasks from: {tasks_path}")
@@ -175,8 +176,8 @@ def run_benchmarks(
     print(f"Git HEAD : {git_commit}  (dirty={git_dirty})")
     print(f"Tasks SHA: {task_file_sha}")
 
-    # Equal wall-clock budget for every condition (12 min)
-    WALL_CLOCK_BUDGET = 720.0
+    # Equal wall-clock budget for every condition (passed from CLI or default 720 s)
+    WALL_CLOCK_BUDGET = wall_clock_budget
 
     agents: Dict[str, Any] = {}
     if "direct" in conditions:
@@ -266,6 +267,8 @@ def run_benchmarks(
                     "normalized_score": scores["normalized_score"],
                     "pass_rate": scores["pass_rate"],
                     "axis_scores": scores["axis_scores"],
+                    "judge_error_count": scores.get("judge_error_count", 0),
+                    "scoreable_criteria": scores.get("scoreable_criteria", 0),
                     "tool_calls": out["tool_calls"],
                     "metrics": out.get("metrics", {}),
                     "action_trajectory": out.get("action_trajectory", []),
@@ -416,26 +419,41 @@ def print_markdown_report(
     col_sep  = "|-----|-----------|-------------|-------|------|----------|-------|--------|------|-------|--------|--------|------|"
     for task in tasks:
         lines.append(f"\n### {task.task_id}: {task.domain}")
+        col_hdrs = "| Run | Condition | Exec Status | Score | Pass | JudgeErr | Searches | Reads | Writes | CLIs | Execs | Models | Tokens | Time | Incomplete Reason |"
+        col_sep  = "|-----|-----------|-------------|-------|------|----------|----------|-------|--------|------|-------|--------|--------|------|-------------------|"
         lines.append(col_hdrs)
         lines.append(col_sep)
         for r in [x for x in raw_runs if x["task_id"] == task.task_id]:
             m = r["metrics"]
+            je = r.get("judge_error_count", 0)
+            reason = r.get("incomplete_reason", "") or ""
             lines.append(
                 f"| {r['run_index']} | {r['condition']} | {r['exec_status']} "
                 f"| {r['normalized_score']:.1f}% | {r['pass_rate']:.1f}% "
+                f"| {je} "
                 f"| {m.get('search_calls',0)} | {m.get('read_calls',0)} "
                 f"| {m.get('write_calls',0)} | {m.get('cli_calls',0)} "
                 f"| {m.get('exec_calls',0)} | {m.get('model_calls',0)} "
-                f"| {m.get('tokens_estimated',0)} | {r['wall_clock_seconds']:.1f}s |"
+                f"| {m.get('tokens_estimated',0)} | {r['wall_clock_seconds']:.1f}s "
+                f"| {reason} |"
             )
 
+    n_tasks  = len(tasks)
+    n_conds  = len(conditions)
+    n_runs   = runs_per_condition
+    success_counts = {
+        c: sum(1 for r in raw_runs if r["condition"] == c and r["exec_status"] == "success")
+        for c in conditions
+    }
+    success_summary = ", ".join(f"{c}={success_counts[c]}/{n_tasks*n_runs}" for c in conditions)
     lines.append("\n## Conclusion")
     lines.append(
-        "This run exercises the three-condition evaluation pipeline and records "
-        "action-level telemetry per run. Failed and incomplete runs were excluded from "
-        "quality scoring. The results are diagnostic — they do not yet constitute a "
-        "statistically valid comparison. Limitations include: same-model judging, "
-        "single task, single run per condition, and no token-exact accounting."
+        f"Run over {n_tasks} task(s) × {n_runs} run(s) × {n_conds} condition(s). "
+        f"Execution validity (success counts): {success_summary}. "
+        "Failed and incomplete runs were excluded from quality scoring. "
+        "JUDGE_ERROR criteria were excluded from score and pass-rate denominators. "
+        "Results are diagnostic — they do not constitute a statistically valid comparison "
+        "without multiple tasks, multiple runs per condition, and an independent judge model."
     )
 
     md = "\n".join(lines)
@@ -450,11 +468,18 @@ def print_markdown_report(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run A/B agent benchmarks.")
-    parser.add_argument("--tasks",   default=".agents/skills/evaluate/tasks/pilot_tasks.yaml")
-    parser.add_argument("--conditions", default="direct,react,drs")
-    parser.add_argument("--runs",    type=int, default=1)
-    parser.add_argument("--model",  default="Gemini 3.5 Flash (Low)")
-    parser.add_argument("--run-id", default=None)
+    parser.add_argument("--tasks",      default=".agents/skills/evaluate/tasks/pilot_tasks.yaml",
+                        help="Path to YAML task file")
+    parser.add_argument("--conditions", default="direct,react,drs",
+                        help="Comma-separated conditions: direct, react, drs")
+    parser.add_argument("--runs",       type=int, default=1,
+                        help="Runs per condition per task")
+    parser.add_argument("--model",      default="Gemini 3.5 Flash (Low)",
+                        help="agy model string for agent and judge")
+    parser.add_argument("--run-id",     default=None,
+                        help="Unique run identifier (auto-generated if omitted)")
+    parser.add_argument("--budget",     type=float, default=720.0,
+                        help="Wall-clock budget per agent run in seconds (default 720)")
     args = parser.parse_args()
 
     run_benchmarks(
@@ -463,4 +488,5 @@ if __name__ == "__main__":
         args.runs,
         args.model,
         run_id=args.run_id,
+        wall_clock_budget=args.budget,
     )

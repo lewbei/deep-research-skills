@@ -44,6 +44,9 @@ coverage.xml
 .deep-research/
 test-project*/
 
+# DRS temp workspaces created during benchmark runs
+/tmp/drs-bench-*/
+
 # OS files
 .DS_Store
 Thumbs.db
