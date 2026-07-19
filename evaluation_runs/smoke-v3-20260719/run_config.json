@@ -1,0 +1,14 @@
+{
+  "run_id": "smoke-v3-20260719",
+  "git_commit": "e77cb8b7d74c6b703f5db142db6793002c5e5b17",
+  "task_file": "/home/lewbei/deep_learning/research planning/deep-research-skills/benchmarks/smoke_task.yaml",
+  "task_file_sha256": "299429c868e4f848ae8306fbdd5e2d8c3c19f9b33521634a8aaaffb33f4fdea1",
+  "conditions": [
+    "direct",
+    "react",
+    "drs"
+  ],
+  "runs_per_condition": 1,
+  "model": "Gemini 3.5 Flash (Low)",
+  "timestamp_utc": "2026-07-19T07:48:07.866928+00:00"
+}

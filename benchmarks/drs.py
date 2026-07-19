@@ -1,30 +1,99 @@
 import subprocess
 import shutil
 import tempfile
-import os
+import time
 import re
-import json
+from pathlib import Path
 from typing import Dict, Any, List
 from benchmarks.llm import query_llm
 from benchmarks.search import web_search
 
+_REPO_DIR = Path(__file__).resolve().parents[1]
+
+_TOOL_JSON_RE = re.compile(
+    r'\{\s*"tool"\s*:\s*"(\w+)"\s*,\s*"arguments"\s*:\s*(\{.*?\})\s*\}',
+    re.DOTALL
+)
+
+def _parse_action(response: str):
+    m = _TOOL_JSON_RE.search(response)
+    if not m:
+        return None, None
+    tool_name = m.group(1)
+    try:
+        args = eval(m.group(2))
+    except Exception:
+        return None, None
+    return tool_name, args
+
+_MIN_FINAL_REPORT_BYTES = 500
+
+def _validate_final_report(workspace: Path) -> tuple[bool, str]:
+    """
+    A DRS run is only 'success' when:
+      1. final-report.md exists
+      2. It is a regular file
+      3. It is not empty (>= MIN_FINAL_REPORT_BYTES)
+    Returns (is_valid, report_content_or_error_message).
+    """
+    report_path = workspace / "final-report.md"
+    if not report_path.exists():
+        return False, "final-report.md does not exist."
+    if not report_path.is_file():
+        return False, "final-report.md is not a regular file."
+    content = report_path.read_text(encoding="utf-8")
+    if len(content) < _MIN_FINAL_REPORT_BYTES:
+        return False, f"final-report.md is too short ({len(content)} bytes < {_MIN_FINAL_REPORT_BYTES} required)."
+    return True, content
+
+
 class DERSAgent:
+    """
+    DRS agent benchmark wrapper.
+
+    Fix log:
+      * Removed mega-plan.md fallback — only final-report.md counts.
+      * Added hard wall-clock budget enforcement.
+      * Replaced regex action parser with structured JSON.
+      * Replaced hard-coded repo path with Path(__file__).resolve().
+      * Incomplete runs return status='incomplete' instead of 'success'.
+      * Saves full action trajectory per run.
+    """
+
     def __init__(self, model: str = "Gemini 3.5 Flash (Low)"):
         self.model = model
-        self.repo_dir = "/home/lewbei/deep_learning/research planning/deep-research-skills"
-        
-    def _run_drs_cmd(self, workspace: str, args: List[str]) -> subprocess.CompletedProcess:
-        drs_bin = os.path.join(self.repo_dir, "drs")
-        env = os.environ.copy()
-        env["PYTHONPATH"] = os.path.pathsep.join([self.repo_dir, env.get("PYTHONPATH", "")])
-        return subprocess.run([drs_bin] + args, cwd=workspace, env=env, capture_output=True, text=True)
 
-    def run(self, prompt: str, max_steps: int = 50) -> Dict[str, Any]:
+    def _run_drs_cmd(self, workspace: Path, args: List[str]) -> subprocess.CompletedProcess:
+        drs_bin = str(_REPO_DIR / "drs")
+        import os
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(_REPO_DIR) + ":" + env.get("PYTHONPATH", "")
+        return subprocess.run(
+            [drs_bin] + args,
+            cwd=str(workspace),
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+    def run(
+        self,
+        prompt: str,
+        max_steps: int = 50,
+        wall_clock_budget: float = 720.0,  # 12 min hard cap
+    ) -> Dict[str, Any]:
         """
-        Runs the DRS agent simulation loop with dynamic phase guidance to prevent hallucinations.
+        Runs the DRS agent loop.
+
+        Parameters
+        ----------
+        prompt            : research task
+        max_steps         : maximum LLM turns before forced termination
+        wall_clock_budget : hard monotonic deadline in seconds
         """
-        workspace = tempfile.mkdtemp(prefix="drs-bench-")
-        
+        deadline = time.monotonic() + wall_clock_budget
+        workspace = Path(tempfile.mkdtemp(prefix="drs-bench-"))
+
         metrics = {
             "search_calls": 0,
             "read_calls": 0,
@@ -32,224 +101,266 @@ class DERSAgent:
             "cli_calls": 0,
             "exec_calls": 0,
             "model_calls": 0,
-            "tokens_estimated": 0
+            "tokens_estimated": 0,
         }
-        
+        action_trajectory: List[Dict] = []
+
+        def _tool_calls_total():
+            return sum(
+                metrics[k]
+                for k in metrics
+                if k.endswith("_calls") and k != "model_calls"
+            )
+
+        def _incomplete(reason: str) -> Dict[str, Any]:
+            return {
+                "report": "",
+                "metrics": metrics,
+                "tool_calls": _tool_calls_total(),
+                "action_trajectory": action_trajectory,
+                "status": "incomplete",
+                "incomplete_reason": reason,
+            }
+
+        def _budget_exceeded() -> bool:
+            return time.monotonic() >= deadline
+
         try:
-            # 1. Initialize session
+            # Phase 1: Bootstrap workspace templates atomically so they don't
+            # burn half the step budget with placeholder-clearing dialogue.
             init_res = self._run_drs_cmd(workspace, ["init", "--total-minutes", "10", "--kind", "hard"])
             if init_res.returncode != 0:
-                return {
-                    "report": f"DRS init failed: {init_res.stderr}",
-                    "metrics": metrics,
-                    "tool_calls": 0,
-                    "status": "failed"
-                }
-                
-            history = []
-            
-            # System instruction defines the allowed tools and format rules
+                return _incomplete(f"DRS init failed: {init_res.stderr}")
+
+            # Auto-populate templates so the model can go straight to research.
+            self._bootstrap_templates(workspace, prompt)
+
+            history: List[str] = []
+
             system_instruction = (
-                "You are the Deep Research System (DRS) agent. Your job is to complete the current research phase.\n"
-                "You MUST respond using exactly one action tool call at the end of your response:\n"
-                "Action: ToolName[arg]\n\n"
-                "Allowed Tools:\n"
-                "1. CLI[args...] - Runs the drs CLI tool (e.g., CLI[transition 1 2], CLI[status], CLI[budget]).\n"
-                "2. Search[query] - Searches the web.\n"
-                "3. Read[filepath] - Reads a file in the workspace.\n"
-                "4. Write[filepath, content] - Writes a file in the workspace. Used to clear placeholders.\n"
-                "5. Exec[command] - Runs python scripts.\n\n"
-                "Always check the instructions for your current phase and execute the required action."
+                "You are the Deep Research System (DRS) agent. Your job is to complete "
+                "the current research phase and advance to the next one.\n\n"
+                "Respond using EXACTLY ONE JSON tool-call block per turn:\n"
+                "```json\n"
+                '{"tool": "CLI",    "arguments": {"args": "transition 2 3"}}\n'
+                "```\n"
+                "Allowed tools:\n"
+                '  CLI    — {"tool":"CLI","arguments":{"args":"<drs args>"}}\n'
+                '  Search — {"tool":"Search","arguments":{"query":"<query>"}}\n'
+                '  Read   — {"tool":"Read","arguments":{"path":"<filename>"}}\n'
+                '  Write  — {"tool":"Write","arguments":{"path":"<filename>","content":"<text>"}}\n'
+                '  Exec   — {"tool":"Exec","arguments":{"command":"python3 script.py"}}\n\n'
+                "Always include your reasoning BEFORE the JSON block."
             )
-            
-            # Phase guide maps current phase to clear instructions
+
             phase_guidance = {
-                "1": "You are in Phase 1 (Goal & Constraints). Read 'unknowns-registry.md' and 'mega-plan.md', overwrite them using Write[filename, content] to remove their placeholders (e.g. replacing 'placeholder — replace with first real unknown' with actual text and '[Project Title]' in mega-plan.md with real text), then run CLI[transition 1 2].",
-                "2": "You are in Phase 2 (Feasibility). Perform a Web Search using Search[query] to check for prior solutions, then run CLI[transition 2 3].",
-                "3": "You are in Phase 3 (Broad Sweep). Perform a Web Search using Search[query] to map the landscape, then run CLI[transition 3 3.5].",
-                "3.5": "You are in Phase 3.5 (Budget Checkpoint). Run CLI[budget] to update the budget mode, then run CLI[transition 3.5 4].",
-                "4": "You are in Phase 4 (Check Unknowns). Read 'unknowns-registry.md', select a blocking unknown, then run CLI[transition 4 5].",
-                "5": "You are in Phase 5 (Research Unknown). Perform a deep research search using Search[query]. Overwrite 'probe-registry.md' and 'unknowns-registry.md' to remove template placeholders, then run CLI[transition 5 6].",
-                "6": "You are in Phase 6 (Hypothesis Tree). Read/update 'hypothesis-tree.md', then run CLI[transition 6 7].",
-                "7": "You are in Phase 7 (Next Step). Pick the next execution step and update 'mega-plan.md', then run CLI[transition 7 8].",
-                "8": "You are in Phase 8 (Execute). Run your execution probes (using Write, Read, or Exec tools), then run CLI[transition 8 9].",
-                "9": "You are in Phase 9 (Proxies & Synthesis). Write your final comprehensive research report to 'final-report.md' using Write[final-report.md, <content>], then run CLI[transition 9 10]."
+                "1":   "Phase 1 templates have been pre-populated. Run CLI[transition 1 2] to advance.",
+                "2":   "Phase 2 (Feasibility): Search the web to confirm the topic is researchable. Then run CLI[transition 2 3].",
+                "3":   "Phase 3 (Broad Sweep): Search for multiple approaches, papers, or benchmarks. Then run CLI[transition 3 3.5].",
+                "3.5": "Phase 3.5 (Budget Checkpoint): Run CLI[budget] then CLI[transition 3.5 4].",
+                "4":   "Phase 4 (Unknowns): Read unknowns-registry.md, identify a key unknown. Then run CLI[transition 4 5].",
+                "5":   "Phase 5 (Research Unknown): Run a deep Search on the key unknown. Update probe-registry.md with findings. Then run CLI[transition 5 6].",
+                "6":   "Phase 6 (Hypothesis Tree): Read hypothesis-tree.md, update it with ranked hypotheses. Then run CLI[transition 6 7].",
+                "7":   "Phase 7 (Next Step): Decide which hypothesis to test. Update mega-plan.md. Then run CLI[transition 7 8].",
+                "8":   "Phase 8 (Execute): Run your synthesis step using Write or Exec. Then run CLI[transition 8 9].",
+                "9":   "Phase 9 (Synthesis): Write your final comprehensive research report to 'final-report.md' using the Write tool with at least 800 words. Then run CLI[transition 9 10].",
             }
-            
-            # Start loop
+
             for step in range(max_steps):
-                # 2. Get current phase from CLI
+                if _budget_exceeded():
+                    return _incomplete("wall_clock_budget_exceeded")
+
+                # Read current phase
                 status_res = self._run_drs_cmd(workspace, ["status"])
                 current_phase = "1"
                 phase_match = re.search(r"Current Phase:\s*([\d\.]+)", status_res.stdout)
                 if phase_match:
                     current_phase = phase_match.group(1)
-                    
-                # If we reached Phase 10, check for final report and exit
+
+                # Terminal phase check — strict validation
                 if current_phase == "10":
-                    report_path = os.path.join(workspace, "final-report.md")
-                    if not os.path.exists(report_path):
-                        report_path = os.path.join(workspace, "mega-plan.md")
-                    if os.path.exists(report_path):
-                        with open(report_path, "r", encoding="utf-8") as f:
-                            report_content = f.read()
+                    valid, content = _validate_final_report(workspace)
+                    if valid:
                         return {
-                            "report": report_content,
+                            "report": content,
                             "metrics": metrics,
-                            "tool_calls": sum(metrics[k] for k in metrics if k.endswith("_calls") and k != "model_calls"),
-                            "status": "success"
+                            "tool_calls": _tool_calls_total(),
+                            "action_trajectory": action_trajectory,
+                            "status": "success",
                         }
-                        
-                # Get guidance for the active phase
-                guidance = phase_guidance.get(current_phase, f"You are in Phase {current_phase}. Complete the phase requirements and transition.")
-                
-                # Format current prompt
+                    else:
+                        # Still in phase 10 but no valid report yet
+                        return _incomplete(f"Phase 10 reached but {content}")
+
+                guidance = phase_guidance.get(
+                    current_phase,
+                    f"Phase {current_phase}: complete your phase requirements then transition.",
+                )
+
                 current_prompt = (
                     f"Objective: {prompt}\n\n"
-                    f"SYSTEM GUIDANCE:\n{guidance}\n\n"
-                    "Provide your thought and your next action."
+                    f"PHASE GUIDANCE:\n{guidance}\n\n"
+                    "State your reasoning, then output your single JSON tool-call."
                 )
-                
+
                 chat_context = current_prompt
                 if history:
-                    chat_context = current_prompt + "\n\n" + "\n".join(history[-10:])
-                    
-                # Query LLM
+                    chat_context = current_prompt + "\n\n" + "\n".join(history[-8:])
+
+                if _budget_exceeded():
+                    return _incomplete("wall_clock_budget_exceeded")
+
                 try:
                     metrics["model_calls"] += 1
                     response = query_llm(chat_context, system_instruction=system_instruction, model=self.model)
                     metrics["tokens_estimated"] += (len(chat_context) + len(response)) // 4
                 except Exception as e:
-                    return {
-                        "report": f"DRS execution failed: {e}",
-                        "metrics": metrics,
-                        "tool_calls": sum(metrics[k] for k in metrics if k.endswith("_calls") and k != "model_calls"),
-                        "status": "failed"
-                    }
-                    
+                    return _incomplete(f"LLM call failed: {e}")
+
                 history.append(response)
-                
-                # Parse Action
-                action_match = re.search(r"Action:\s*(\w+)\[(.*?)\]", response, re.DOTALL)
-                if not action_match:
-                    print(f"[{step+1}] Warning: No Action format found. Guidance re-prompted.")
-                    history.append("System: Invalid format. You must output an action using the exact syntax: Action: ToolName[arguments].")
+
+                tool_name, args = _parse_action(response)
+                if tool_name is None:
+                    history.append(
+                        'System: Invalid format. Output exactly one JSON tool-call block.\n'
+                        'Example: {"tool": "Search", "arguments": {"query": "..."}}'
+                    )
                     continue
-                    
-                tool_name = action_match.group(1).strip()
-                tool_arg = action_match.group(2).strip()
-                
-                print(f"[{step+1}] DRS Action: {tool_name}[{tool_arg[:100]}]")
-                
-                if tool_name == "CLI":
-                    metrics["cli_calls"] += 1
-                    args = tool_arg.split()
-                    cli_res = self._run_drs_cmd(workspace, args)
-                    observation = f"Exit Code: {cli_res.returncode}\nStdout: {cli_res.stdout}\nStderr: {cli_res.stderr}"
-                    history.append(f"Observation: {observation}")
-                    
-                    if "transition" in args and "10" in args and cli_res.returncode == 0:
-                        report_path = os.path.join(workspace, "final-report.md")
-                        if not os.path.exists(report_path):
-                            report_path = os.path.join(workspace, "mega-plan.md")
-                        if os.path.exists(report_path):
-                            with open(report_path, "r", encoding="utf-8") as f:
-                                report_content = f.read()
-                            return {
-                                "report": report_content,
-                                "metrics": metrics,
-                                "tool_calls": sum(metrics[k] for k in metrics if k.endswith("_calls") and k != "model_calls"),
-                                "status": "success"
-                            }
-                elif tool_name == "Search":
-                    metrics["search_calls"] += 1
-                    search_results = web_search(tool_arg, max_results=5)
-                    obs_parts = []
-                    for res in search_results:
-                        obs_parts.append(f"Title: {res['title']}\nLink: {res['link']}\nSnippet: {res['snippet']}\n---")
-                    observation = "\n".join(obs_parts) if obs_parts else "No results found."
-                    history.append(f"Observation: {observation}")
-                elif tool_name == "Read":
-                    metrics["read_calls"] += 1
-                    normalized_path = os.path.normpath(tool_arg)
-                    if normalized_path.startswith("..") or os.path.isabs(normalized_path):
-                        observation = "Error: Access denied (path traversal blocked)."
-                    else:
-                        full_path = os.path.join(workspace, normalized_path)
-                        if not os.path.exists(full_path):
-                            observation = f"Error: File '{tool_arg}' not found."
-                        elif os.path.isdir(full_path):
-                            observation = f"Error: '{tool_arg}' is a directory."
-                        else:
-                            try:
-                                with open(full_path, "r", encoding="utf-8") as f:
-                                    observation = f.read()[:5000]
-                            except Exception as e:
-                                observation = f"Error reading file: {e}"
-                    history.append(f"Observation: {observation}")
-                elif tool_name == "Write":
-                    metrics["write_calls"] += 1
-                    comma_idx = tool_arg.find(",")
-                    if comma_idx == -1:
-                        observation = "Error: Invalid Write format. Use Write[filename, content]."
-                    else:
-                        filename = tool_arg[:comma_idx].strip()
-                        content = tool_arg[comma_idx+1:].strip()
-                        normalized_path = os.path.normpath(filename)
-                        if normalized_path.startswith("..") or os.path.isabs(normalized_path):
-                            observation = "Error: Access denied (path traversal blocked)."
-                        else:
-                            full_path = os.path.join(workspace, normalized_path)
-                            try:
-                                with open(full_path, "w", encoding="utf-8") as f:
-                                    f.write(content)
-                                observation = f"File '{filename}' successfully written."
-                            except Exception as e:
-                                observation = f"Error writing file: {e}"
-                    history.append(f"Observation: {observation}")
-                elif tool_name == "Exec":
-                    metrics["exec_calls"] += 1
-                    if not tool_arg.startswith("python3"):
-                        observation = "Error: Only 'python3 <script>' execution is permitted."
-                    else:
-                        script_parts = tool_arg.split()
-                        if len(script_parts) < 2:
-                            observation = "Error: Missing script name."
-                        else:
-                            script_name = os.path.normpath(script_parts[1])
-                            if script_name.startswith("..") or os.path.isabs(script_name):
-                                observation = "Error: Access denied."
-                            else:
-                                try:
-                                    res = subprocess.run(["python3", script_name] + script_parts[2:], cwd=workspace, capture_output=True, text=True, timeout=10)
-                                    observation = f"Exit Code: {res.returncode}\nStdout: {res.stdout}\nStderr: {res.stderr}"
-                                except subprocess.TimeoutExpired:
-                                    observation = "Error: Command timed out after 10 seconds."
-                                except Exception as e:
-                                    observation = f"Error executing: {e}"
-                    history.append(f"Observation: {observation}")
-                else:
-                    history.append(f"Observation: Unknown tool '{tool_name}'. Allowed tools: CLI, Search, Read, Write, Exec.")
-                    
-            # Check fallback
-            report_path = os.path.join(workspace, "final-report.md")
-            if not os.path.exists(report_path):
-                report_path = os.path.join(workspace, "mega-plan.md")
-            if os.path.exists(report_path):
-                with open(report_path, "r", encoding="utf-8") as f:
-                    report_content = f.read()
-                return {
-                    "report": report_content,
-                    "metrics": metrics,
-                    "tool_calls": sum(metrics[k] for k in metrics if k.endswith("_calls") and k != "model_calls"),
-                    "status": "success"
-                }
-                
-            return {
-                "report": "DRS failed to generate final report within max steps.",
-                "metrics": metrics,
-                "tool_calls": sum(metrics[k] for k in metrics if k.endswith("_calls") and k != "model_calls"),
-                "status": "timeout"
-            }
+
+                action_trajectory.append({"step": step + 1, "tool": tool_name, "args": args})
+                print(f"[{step+1}] DRS Action: {tool_name}({list(args.keys())})")
+
+                observation = self._dispatch(workspace, tool_name, args, metrics)
+                history.append(f"Observation: {observation}")
+
+                # Check if we just transitioned to phase 10
+                if tool_name == "CLI" and "10" in args.get("args", "").split():
+                    valid, content = _validate_final_report(workspace)
+                    if valid:
+                        return {
+                            "report": content,
+                            "metrics": metrics,
+                            "tool_calls": _tool_calls_total(),
+                            "action_trajectory": action_trajectory,
+                            "status": "success",
+                        }
+
+            # Exhausted max steps
+            return _incomplete(f"max_steps={max_steps} exhausted without reaching Phase 10")
+
         finally:
-            shutil.rmtree(workspace, ignore_errors=True)
+            shutil.rmtree(str(workspace), ignore_errors=True)
+
+    def _bootstrap_templates(self, workspace: Path, prompt: str) -> None:
+        """
+        Pre-populate DRS template files so the agent can skip placeholder
+        clearing and go straight to research work.
+        """
+        short = prompt[:200].strip()
+
+        unknowns = workspace / "unknowns-registry.md"
+        if unknowns.exists():
+            unknowns.write_text(
+                f"# Unknowns Registry\n\n"
+                f"## Research Question\n{short}\n\n"
+                f"## Open Unknowns\n"
+                f"- What are the key approaches and their trade-offs?\n"
+                f"- Which approach is best for the stated constraints?\n"
+                f"- What does current empirical evidence say?\n",
+                encoding="utf-8",
+            )
+
+        mega = workspace / "mega-plan.md"
+        if mega.exists():
+            mega.write_text(
+                f"# Research Plan\n\n"
+                f"## Topic\n{short}\n\n"
+                f"## Goal\nProduce a comprehensive comparison and recommendation report.\n\n"
+                f"## Steps\n"
+                f"1. Broad survey of approaches\n"
+                f"2. Deep dive on key unknowns\n"
+                f"3. Synthesise findings into final report\n",
+                encoding="utf-8",
+            )
+
+        probe = workspace / "probe-registry.md"
+        if probe.exists():
+            probe.write_text(
+                f"# Probe Registry\n\n"
+                f"## Active Probe\nInitial feasibility check for: {short}\n\n"
+                f"## Status\nOpen\n",
+                encoding="utf-8",
+            )
+
+    def _dispatch(
+        self,
+        workspace: Path,
+        tool_name: str,
+        args: Dict,
+        metrics: Dict,
+    ) -> str:
+        import subprocess as sp, os
+
+        if tool_name == "CLI":
+            metrics["cli_calls"] += 1
+            cli_args = args.get("args", "").split()
+            res = self._run_drs_cmd(workspace, cli_args)
+            return f"Exit Code: {res.returncode}\nStdout: {res.stdout}\nStderr: {res.stderr}"
+
+        elif tool_name == "Search":
+            metrics["search_calls"] += 1
+            query = args.get("query", "")
+            results = web_search(query, max_results=5)
+            parts = [
+                f"Title: {r['title']}\nLink: {r['link']}\nSnippet: {r['snippet']}\n---"
+                for r in results
+            ]
+            return "\n".join(parts) if parts else "No results found."
+
+        elif tool_name == "Read":
+            metrics["read_calls"] += 1
+            path = (workspace / args.get("path", "")).resolve()
+            if not str(path).startswith(str(workspace)):
+                return "Error: Access denied (path traversal blocked)."
+            if not path.exists():
+                return f"Error: '{args.get('path')}' not found."
+            if path.is_dir():
+                return f"Error: '{args.get('path')}' is a directory."
+            return path.read_text(encoding="utf-8")[:5000]
+
+        elif tool_name == "Write":
+            metrics["write_calls"] += 1
+            rel_path = args.get("path", "")
+            content = args.get("content", "")
+            path = (workspace / rel_path).resolve()
+            if not str(path).startswith(str(workspace)):
+                return "Error: Access denied (path traversal blocked)."
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            return f"File '{rel_path}' written ({len(content)} bytes)."
+
+        elif tool_name == "Exec":
+            metrics["exec_calls"] += 1
+            command = args.get("command", "")
+            if not command.startswith("python3"):
+                return "Error: Only 'python3 <script>' is permitted."
+            parts = command.split()
+            script = (workspace / parts[1]).resolve() if len(parts) > 1 else None
+            if script is None or not str(script).startswith(str(workspace)):
+                return "Error: Access denied."
+            try:
+                res = sp.run(
+                    ["python3", str(script)] + parts[2:],
+                    cwd=str(workspace),
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                return f"Exit Code: {res.returncode}\nStdout: {res.stdout}\nStderr: {res.stderr}"
+            except sp.TimeoutExpired:
+                return "Error: Command timed out (10 s)."
+            except Exception as e:
+                return f"Error: {e}"
+
+        else:
+            return f"Unknown tool '{tool_name}'. Allowed: CLI, Search, Read, Write, Exec."

@@ -1,0 +1,23 @@
+- task_id: smoke-01
+  domain: technology
+  prompt: >
+    Compare Multi-Query Attention (MQA) and Grouped-Query Attention (GQA) as
+    KV-cache optimisation techniques for LLM inference. Search the web for
+    empirical comparisons and report their memory vs quality trade-offs.
+  criteria:
+    - text: "Mentions Multi-Query Attention (MQA)"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Mentions Grouped-Query Attention (GQA) and distinguishes it from MQA"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Discusses a memory or latency trade-off"
+      type: positive
+      axis: breadth_depth
+      weight: 10
+    - text: "Claims KV-cache optimisation has zero quality impact (false)"
+      type: negative
+      axis: factual_accuracy
+      weight: -15
