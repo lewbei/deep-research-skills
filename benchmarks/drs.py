@@ -14,20 +14,17 @@ class DERSAgent:
         self.repo_dir = "/home/lewbei/deep_learning/research planning/deep-research-skills"
         
     def _run_drs_cmd(self, workspace: str, args: List[str]) -> subprocess.CompletedProcess:
-        # Runs the drs wrapper CLI
         drs_bin = os.path.join(self.repo_dir, "drs")
         env = os.environ.copy()
         env["PYTHONPATH"] = os.path.pathsep.join([self.repo_dir, env.get("PYTHONPATH", "")])
         return subprocess.run([drs_bin] + args, cwd=workspace, env=env, capture_output=True, text=True)
 
-    def run(self, prompt: str, max_steps: int = 30) -> Dict[str, Any]:
+    def run(self, prompt: str, max_steps: int = 50) -> Dict[str, Any]:
         """
-        Runs the DRS agent simulation loop using the drs CLI tool and workspace templates.
+        Runs the DRS agent simulation loop with dynamic phase guidance to prevent hallucinations.
         """
-        # 1. Create temporary workspace and initialize
         workspace = tempfile.mkdtemp(prefix="drs-bench-")
         
-        # Detailed metrics collection
         metrics = {
             "search_calls": 0,
             "read_calls": 0,
@@ -39,7 +36,7 @@ class DERSAgent:
         }
         
         try:
-            # Run drs init
+            # 1. Initialize session
             init_res = self._run_drs_cmd(workspace, ["init", "--total-minutes", "10", "--kind", "hard"])
             if init_res.returncode != 0:
                 return {
@@ -51,40 +48,71 @@ class DERSAgent:
                 
             history = []
             
+            # System instruction defines the allowed tools and format rules
             system_instruction = (
-                "You are the Deep Research System (DRS) orchestrator. Your job is to run the interleaved research-and-execute loop.\n"
-                "You MUST use the `drs` CLI tool to progress through the phases from 1 to 10. The current phase is tracked by the CLI.\n"
-                "Here is the exact step-by-step sequence of phases you MUST execute:\n"
-                "- Phase 1: Read unknowns-registry.md and mega-plan.md, edit them to remove/replace their placeholders, then run Action: CLI[transition 1 2].\n"
-                "- Phase 2: Perform web search for feasibility, then run Action: CLI[transition 2 3].\n"
-                "- Phase 3: Perform broad research sweep, then run Action: CLI[transition 3 3.5].\n"
-                "- Phase 3.5: Run Action: CLI[budget] to update budget mode, then run Action: CLI[transition 3.5 4].\n"
-                "- Phase 4: Select blocking unknowns in unknowns-registry.md, then run Action: CLI[transition 4 5].\n"
-                "- Phase 5: Research unknowns, edit unknowns-registry.md and probe-registry.md (clear placeholders in both), then run Action: CLI[transition 5 6].\n"
-                "- Phase 6: Update hypothesis-tree.md, then run Action: CLI[transition 6 7].\n"
-                "- Phase 7: Pick next execution step in mega-plan.md, then run Action: CLI[transition 7 8].\n"
-                "- Phase 8: Execute code/experiments (use Exec[...] or write files), then run Action: CLI[transition 8 9].\n"
-                "- Phase 9: Learn/validate proxies, write your final research report to 'final-report.md', then run Action: CLI[transition 9 10].\n\n"
+                "You are the Deep Research System (DRS) agent. Your job is to complete the current research phase.\n"
+                "You MUST respond using exactly one action tool call at the end of your response:\n"
+                "Action: ToolName[arg]\n\n"
                 "Allowed Tools:\n"
-                "1. CLI[args...] - Runs a `drs` command (e.g. CLI[transition 1 2], CLI[status], CLI[budget]).\n"
+                "1. CLI[args...] - Runs the drs CLI tool (e.g., CLI[transition 1 2], CLI[status], CLI[budget]).\n"
                 "2. Search[query] - Searches the web.\n"
-                "3. Read[filepath] - Reads a file.\n"
-                "4. Write[filepath, content] - Writes a file. MUST be used to overwrite templates and clear placeholders before transitioning!\n"
+                "3. Read[filepath] - Reads a file in the workspace.\n"
+                "4. Write[filepath, content] - Writes a file in the workspace. Used to clear placeholders.\n"
                 "5. Exec[command] - Runs python scripts.\n\n"
-                "CRITICAL: To transition to the next phase, you MUST clear all placeholders in the required files. For example:\n"
-                "- Before transition 1 2: Write to 'unknowns-registry.md' and replace 'placeholder — replace with first real unknown' with actual text, and replace '[Project Title]' in 'mega-plan.md' with actual text.\n"
-                "- Before transition 5 6: Clear placeholders in 'probe-registry.md' and 'unknowns-registry.md'.\n"
-                "- Before transition 9 10: You must Write the final research report to 'final-report.md'.\n\n"
-                "Start by running CLI[status] to confirm the workspace is initialized."
+                "Always check the instructions for your current phase and execute the required action."
             )
             
-            current_prompt = f"Objective: {prompt}\n\nBegin. Start by thinking, then calling a tool."
+            # Phase guide maps current phase to clear instructions
+            phase_guidance = {
+                "1": "You are in Phase 1 (Goal & Constraints). Read 'unknowns-registry.md' and 'mega-plan.md', overwrite them using Write[filename, content] to remove their placeholders (e.g. replacing 'placeholder — replace with first real unknown' with actual text and '[Project Title]' in mega-plan.md with real text), then run CLI[transition 1 2].",
+                "2": "You are in Phase 2 (Feasibility). Perform a Web Search using Search[query] to check for prior solutions, then run CLI[transition 2 3].",
+                "3": "You are in Phase 3 (Broad Sweep). Perform a Web Search using Search[query] to map the landscape, then run CLI[transition 3 3.5].",
+                "3.5": "You are in Phase 3.5 (Budget Checkpoint). Run CLI[budget] to update the budget mode, then run CLI[transition 3.5 4].",
+                "4": "You are in Phase 4 (Check Unknowns). Read 'unknowns-registry.md', select a blocking unknown, then run CLI[transition 4 5].",
+                "5": "You are in Phase 5 (Research Unknown). Perform a deep research search using Search[query]. Overwrite 'probe-registry.md' and 'unknowns-registry.md' to remove template placeholders, then run CLI[transition 5 6].",
+                "6": "You are in Phase 6 (Hypothesis Tree). Read/update 'hypothesis-tree.md', then run CLI[transition 6 7].",
+                "7": "You are in Phase 7 (Next Step). Pick the next execution step and update 'mega-plan.md', then run CLI[transition 7 8].",
+                "8": "You are in Phase 8 (Execute). Run your execution probes (using Write, Read, or Exec tools), then run CLI[transition 8 9].",
+                "9": "You are in Phase 9 (Proxies & Synthesis). Write your final comprehensive research report to 'final-report.md' using Write[final-report.md, <content>], then run CLI[transition 9 10]."
+            }
             
+            # Start loop
             for step in range(max_steps):
-                # Format context
+                # 2. Get current phase from CLI
+                status_res = self._run_drs_cmd(workspace, ["status"])
+                current_phase = "1"
+                phase_match = re.search(r"Current Phase:\s*([\d\.]+)", status_res.stdout)
+                if phase_match:
+                    current_phase = phase_match.group(1)
+                    
+                # If we reached Phase 10, check for final report and exit
+                if current_phase == "10":
+                    report_path = os.path.join(workspace, "final-report.md")
+                    if not os.path.exists(report_path):
+                        report_path = os.path.join(workspace, "mega-plan.md")
+                    if os.path.exists(report_path):
+                        with open(report_path, "r", encoding="utf-8") as f:
+                            report_content = f.read()
+                        return {
+                            "report": report_content,
+                            "metrics": metrics,
+                            "tool_calls": sum(metrics[k] for k in metrics if k.endswith("_calls") and k != "model_calls"),
+                            "status": "success"
+                        }
+                        
+                # Get guidance for the active phase
+                guidance = phase_guidance.get(current_phase, f"You are in Phase {current_phase}. Complete the phase requirements and transition.")
+                
+                # Format current prompt
+                current_prompt = (
+                    f"Objective: {prompt}\n\n"
+                    f"SYSTEM GUIDANCE:\n{guidance}\n\n"
+                    "Provide your thought and your next action."
+                )
+                
                 chat_context = current_prompt
                 if history:
-                    chat_context = current_prompt + "\n\n" + "\n".join(history[-10:]) # Keep last 10 turns to avoid context overflow
+                    chat_context = current_prompt + "\n\n" + "\n".join(history[-10:])
                     
                 # Query LLM
                 try:
@@ -101,23 +129,11 @@ class DERSAgent:
                     
                 history.append(response)
                 
-                # Parse action
+                # Parse Action
                 action_match = re.search(r"Action:\s*(\w+)\[(.*?)\]", response, re.DOTALL)
                 if not action_match:
-                    print(f"[{step+1}] Warning: No Action format found in model response: {response[:300]}...")
-                    # Check if model finished or transitioned to phase 10
-                    # Let's inspect if final-report.md exists
-                    report_path = os.path.join(workspace, "final-report.md")
-                    if os.path.exists(report_path):
-                        with open(report_path, "r", encoding="utf-8") as f:
-                            report_content = f.read()
-                        return {
-                            "report": report_content,
-                            "metrics": metrics,
-                            "tool_calls": sum(metrics[k] for k in metrics if k.endswith("_calls") and k != "model_calls"),
-                            "status": "success"
-                        }
-                    history.append("System: Invalid format. You must output an action using the exact syntax: Action: ToolName[arguments] (e.g., Action: CLI[status] or Action: Write[filename, content]).")
+                    print(f"[{step+1}] Warning: No Action format found. Guidance re-prompted.")
+                    history.append("System: Invalid format. You must output an action using the exact syntax: Action: ToolName[arguments].")
                     continue
                     
                 tool_name = action_match.group(1).strip()
@@ -127,17 +143,14 @@ class DERSAgent:
                 
                 if tool_name == "CLI":
                     metrics["cli_calls"] += 1
-                    # Parse CLI args
                     args = tool_arg.split()
                     cli_res = self._run_drs_cmd(workspace, args)
                     observation = f"Exit Code: {cli_res.returncode}\nStdout: {cli_res.stdout}\nStderr: {cli_res.stderr}"
                     history.append(f"Observation: {observation}")
                     
-                    # If transitioned to phase 10, finish
                     if "transition" in args and "10" in args and cli_res.returncode == 0:
                         report_path = os.path.join(workspace, "final-report.md")
                         if not os.path.exists(report_path):
-                            # Try reading from mega-plan or landscape-table as fallback
                             report_path = os.path.join(workspace, "mega-plan.md")
                         if os.path.exists(report_path):
                             with open(report_path, "r", encoding="utf-8") as f:
@@ -176,9 +189,6 @@ class DERSAgent:
                     history.append(f"Observation: {observation}")
                 elif tool_name == "Write":
                     metrics["write_calls"] += 1
-                    # Extract target file and contents
-                    # format: Write[filename, content]
-                    # Since content can have commas, parse carefully. Split at first comma.
                     comma_idx = tool_arg.find(",")
                     if comma_idx == -1:
                         observation = "Error: Invalid Write format. Use Write[filename, content]."
@@ -199,8 +209,6 @@ class DERSAgent:
                     history.append(f"Observation: {observation}")
                 elif tool_name == "Exec":
                     metrics["exec_calls"] += 1
-                    # Execute python script
-                    # For safety, limit commands to python3 scripts in workspace
                     if not tool_arg.startswith("python3"):
                         observation = "Error: Only 'python3 <script>' execution is permitted."
                     else:
@@ -223,7 +231,7 @@ class DERSAgent:
                 else:
                     history.append(f"Observation: Unknown tool '{tool_name}'. Allowed tools: CLI, Search, Read, Write, Exec.")
                     
-            # Check for final report fallback at the end of loop
+            # Check fallback
             report_path = os.path.join(workspace, "final-report.md")
             if not os.path.exists(report_path):
                 report_path = os.path.join(workspace, "mega-plan.md")
@@ -244,5 +252,4 @@ class DERSAgent:
                 "status": "timeout"
             }
         finally:
-            # Clean up temp workspace
             shutil.rmtree(workspace, ignore_errors=True)
