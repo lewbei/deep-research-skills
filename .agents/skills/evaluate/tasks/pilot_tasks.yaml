@@ -1,0 +1,287 @@
+# Pilot Tasks for Evaluation Skill
+#
+# 5 hand-crafted research tasks spanning different domains.
+# Each task has 8-15 weighted rubric criteria across 4 axes.
+# Use these for fast iteration before scaling to DRACO.
+
+- task_id: pilot-01
+  domain: technology
+  prompt: >
+    Research the current state of KV-cache optimization techniques for
+    large language models. Compare at least 3 approaches (e.g., Multi-Query
+    Attention, Grouped-Query Attention, paged attention, quantized KV caches),
+    discuss their trade-offs in memory, latency, and quality, and recommend
+    which is most suitable for inference on consumer GPUs with 24GB VRAM.
+  criteria:
+    - text: "Mentions Multi-Query Attention (MQA) or Grouped-Query Attention (GQA) as a KV-cache optimization"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Correctly states that GQA uses fewer KV heads than standard multi-head attention but more than MQA"
+      type: positive
+      axis: factual_accuracy
+      weight: 15
+    - text: "Discusses paged attention (e.g., vLLM's PagedAttention) as a memory management technique"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Mentions KV-cache quantization (e.g., INT8/INT4 KV caches) as an optimization approach"
+      type: positive
+      axis: factual_accuracy
+      weight: 8
+    - text: "Provides at least one quantitative comparison (e.g., memory reduction percentage, throughput improvement, or latency numbers)"
+      type: positive
+      axis: breadth_depth
+      weight: 12
+    - text: "Discusses trade-offs between memory savings and generation quality (e.g., perplexity degradation)"
+      type: positive
+      axis: breadth_depth
+      weight: 10
+    - text: "Makes a specific recommendation for 24GB consumer GPUs with stated reasoning"
+      type: positive
+      axis: breadth_depth
+      weight: 10
+    - text: "Uses clear section structure (headings, subheadings, or numbered sections)"
+      type: positive
+      axis: presentation
+      weight: 5
+    - text: "Includes at least 2 citations to primary sources (papers, documentation, or benchmarks)"
+      type: positive
+      axis: citation
+      weight: 10
+    - text: "Claims that KV-cache optimization has no impact on output quality"
+      type: negative
+      axis: factual_accuracy
+      weight: -15
+    - text: "Confuses KV-cache optimization with general model compression or pruning without distinguishing them"
+      type: negative
+      axis: factual_accuracy
+      weight: -10
+
+- task_id: pilot-02
+  domain: finance
+  prompt: >
+    Analyze the impact of central bank digital currencies (CBDCs) on
+    commercial banking systems. Cover at least 3 countries that have
+    launched or are piloting CBDCs (e.g., China's e-CNY, Nigeria's eNaira,
+    the Bahamas' Sand Dollar). Discuss risks of bank disintermediation,
+    effects on monetary policy transmission, and privacy implications.
+    Provide specific data points where available.
+  criteria:
+    - text: "Discusses China's e-CNY (digital yuan) with at least one specific detail (e.g., transaction volume, pilot cities, or design features)"
+      type: positive
+      axis: factual_accuracy
+      weight: 12
+    - text: "Covers at least 3 different country CBDC initiatives"
+      type: positive
+      axis: breadth_depth
+      weight: 10
+    - text: "Explains the risk of bank disintermediation (depositors moving funds from commercial banks to CBDC wallets)"
+      type: positive
+      axis: factual_accuracy
+      weight: 12
+    - text: "Discusses monetary policy transmission effects (how CBDCs could change how interest rate changes flow through the economy)"
+      type: positive
+      axis: breadth_depth
+      weight: 10
+    - text: "Addresses privacy implications (surveillance risks, transaction traceability, anonymity tiers)"
+      type: positive
+      axis: breadth_depth
+      weight: 10
+    - text: "Provides at least 2 specific data points (adoption numbers, transaction volumes, or survey results)"
+      type: positive
+      axis: factual_accuracy
+      weight: 8
+    - text: "Distinguishes between retail CBDCs (for public) and wholesale CBDCs (for interbank settlement)"
+      type: positive
+      axis: factual_accuracy
+      weight: 8
+    - text: "Uses clear section structure with distinct sections for different countries or topics"
+      type: positive
+      axis: presentation
+      weight: 5
+    - text: "Includes at least 2 citations to central bank publications, IMF/BIS reports, or academic papers"
+      type: positive
+      axis: citation
+      weight: 10
+    - text: "States that CBDCs will definitely replace commercial banking without qualification"
+      type: negative
+      axis: factual_accuracy
+      weight: -20
+    - text: "Confuses CBDCs with cryptocurrencies like Bitcoin or stablecoins without distinguishing their fundamental differences"
+      type: negative
+      axis: factual_accuracy
+      weight: -15
+
+- task_id: pilot-03
+  domain: science
+  prompt: >
+    Review the current evidence on microplastics in human blood and organs.
+    Summarize the key studies that have detected microplastics in human
+    tissues, the analytical methods used (e.g., Raman spectroscopy, pyrolysis
+    GC-MS), the concentrations found, and what is currently known about
+    health effects. Identify the main methodological challenges and
+    open questions in this field.
+  criteria:
+    - text: "Cites the 2022 Leslie et al. study (or equivalent landmark study) detecting microplastics in human blood"
+      type: positive
+      axis: factual_accuracy
+      weight: 12
+    - text: "Names at least 2 specific analytical methods used for microplastic detection in human tissue"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Reports specific concentration values found in studies (e.g., μg/mL, particles per gram)"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Discusses health effects evidence (inflammation, endocrine disruption, oxidative stress) and distinguishes between in vitro, animal, and human evidence"
+      type: positive
+      axis: breadth_depth
+      weight: 12
+    - text: "Identifies methodological challenges (contamination during sample prep, lack of standardized methods, size detection limits)"
+      type: positive
+      axis: breadth_depth
+      weight: 10
+    - text: "Identifies open research questions (dose-response relationships, long-term accumulation, which polymers are most harmful)"
+      type: positive
+      axis: breadth_depth
+      weight: 8
+    - text: "Covers multiple tissue types where microplastics have been detected (blood, lungs, placenta, liver, etc.)"
+      type: positive
+      axis: breadth_depth
+      weight: 8
+    - text: "Presents findings with appropriate hedging (e.g., 'evidence suggests' rather than 'microplastics cause')"
+      type: positive
+      axis: presentation
+      weight: 8
+    - text: "Includes at least 3 citations to peer-reviewed studies"
+      type: positive
+      axis: citation
+      weight: 10
+    - text: "States that microplastics are definitively proven to cause specific diseases in humans"
+      type: negative
+      axis: factual_accuracy
+      weight: -20
+    - text: "Fails to mention any methodological limitations or uncertainties"
+      type: negative
+      axis: breadth_depth
+      weight: -10
+
+- task_id: pilot-04
+  domain: history
+  prompt: >
+    Compare the economic reconstruction strategies of West Germany
+    (Marshall Plan era, 1948-1955) and Japan (post-WWII, 1945-1955).
+    Analyze what role external aid played versus domestic policy
+    decisions, and identify which specific reforms had the largest
+    measurable impact on industrial recovery. Include GDP growth rates
+    or production indices where available.
+  criteria:
+    - text: "Correctly identifies the Marshall Plan and its approximate scale of aid to West Germany"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Discusses the 1948 currency reform (Deutsche Mark introduction) as a key domestic policy decision"
+      type: positive
+      axis: factual_accuracy
+      weight: 12
+    - text: "Discusses Japan's Dodge Line stabilization plan or equivalent deflationary policy"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Mentions SCAP/GHQ occupation reforms in Japan (zaibatsu dissolution, land reform, labor laws)"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Provides at least 2 quantitative indicators (GDP growth rates, industrial production indices, trade volumes)"
+      type: positive
+      axis: breadth_depth
+      weight: 12
+    - text: "Analyzes whether external aid or domestic reforms contributed more to recovery, with stated reasoning"
+      type: positive
+      axis: breadth_depth
+      weight: 12
+    - text: "Draws at least one explicit parallel or contrast between the two countries' strategies"
+      type: positive
+      axis: breadth_depth
+      weight: 8
+    - text: "Uses chronological or thematic organization that makes the comparison clear"
+      type: positive
+      axis: presentation
+      weight: 5
+    - text: "Includes at least 2 citations to historical sources, economic histories, or academic papers"
+      type: positive
+      axis: citation
+      weight: 10
+    - text: "Claims the Marshall Plan was the sole cause of German recovery without acknowledging domestic factors"
+      type: negative
+      axis: factual_accuracy
+      weight: -15
+    - text: "Attributes Japan's recovery entirely to American aid without discussing domestic industrial policy (e.g., MITI)"
+      type: negative
+      axis: factual_accuracy
+      weight: -15
+
+- task_id: pilot-05
+  domain: medicine
+  prompt: >
+    Summarize the current clinical evidence for GLP-1 receptor agonists
+    (semaglutide, tirzepatide) beyond their original diabetes indication.
+    Cover weight management, cardiovascular outcomes, MASH/NASH, and
+    any emerging indications (e.g., addiction, Alzheimer's). For each
+    indication, identify the highest-quality trial available, its
+    primary endpoint result, and current regulatory approval status.
+  criteria:
+    - text: "Correctly identifies semaglutide (Ozempic/Wegovy) and tirzepatide (Mounjaro/Zepbound) as GLP-1 receptor agonists"
+      type: positive
+      axis: factual_accuracy
+      weight: 8
+    - text: "Discusses the SELECT trial (or equivalent large cardiovascular outcomes trial) and its primary result"
+      type: positive
+      axis: factual_accuracy
+      weight: 15
+    - text: "Covers weight management indication with quantitative weight loss results (e.g., percentage body weight reduction)"
+      type: positive
+      axis: factual_accuracy
+      weight: 12
+    - text: "Discusses MASH/NASH evidence (e.g., liver histology improvement, fibrosis resolution rates)"
+      type: positive
+      axis: breadth_depth
+      weight: 10
+    - text: "Mentions at least one emerging or investigational indication (addiction, Alzheimer's, kidney disease, sleep apnea)"
+      type: positive
+      axis: breadth_depth
+      weight: 8
+    - text: "Distinguishes between FDA-approved indications and investigational uses"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Names specific clinical trials by name (e.g., STEP, SURPASS, SURMOUNT, SELECT) for at least 2 indications"
+      type: positive
+      axis: citation
+      weight: 10
+    - text: "Discusses safety signals or adverse effects (GI side effects, thyroid concerns, pancreatitis risk)"
+      type: positive
+      axis: breadth_depth
+      weight: 8
+    - text: "Uses clear organization with separate sections per indication"
+      type: positive
+      axis: presentation
+      weight: 5
+    - text: "Includes at least 2 citations to published trial results or regulatory documents"
+      type: positive
+      axis: citation
+      weight: 10
+    - text: "Claims GLP-1 agonists cure diabetes rather than managing it"
+      type: negative
+      axis: factual_accuracy
+      weight: -20
+    - text: "Fails to mention any safety concerns or adverse effects"
+      type: negative
+      axis: factual_accuracy
+      weight: -15
+    - text: "Provides medical dosing advice or treatment recommendations to patients"
+      type: negative
+      axis: presentation
+      weight: -25
