@@ -27,17 +27,28 @@ class DERSAgent:
         # 1. Create temporary workspace and initialize
         workspace = tempfile.mkdtemp(prefix="drs-bench-")
         
+        # Detailed metrics collection
+        metrics = {
+            "search_calls": 0,
+            "read_calls": 0,
+            "write_calls": 0,
+            "cli_calls": 0,
+            "exec_calls": 0,
+            "model_calls": 0,
+            "tokens_estimated": 0
+        }
+        
         try:
             # Run drs init
             init_res = self._run_drs_cmd(workspace, ["init", "--total-minutes", "10", "--kind", "hard"])
             if init_res.returncode != 0:
                 return {
                     "report": f"DRS init failed: {init_res.stderr}",
+                    "metrics": metrics,
                     "tool_calls": 0,
                     "status": "failed"
                 }
                 
-            tool_calls = 0
             history = []
             
             system_instruction = (
@@ -77,11 +88,14 @@ class DERSAgent:
                     
                 # Query LLM
                 try:
+                    metrics["model_calls"] += 1
                     response = query_llm(chat_context, system_instruction=system_instruction, model=self.model)
+                    metrics["tokens_estimated"] += (len(chat_context) + len(response)) // 4
                 except Exception as e:
                     return {
                         "report": f"DRS execution failed: {e}",
-                        "tool_calls": tool_calls,
+                        "metrics": metrics,
+                        "tool_calls": sum(metrics[k] for k in metrics if k.endswith("_calls") and k != "model_calls"),
                         "status": "failed"
                     }
                     
@@ -99,7 +113,8 @@ class DERSAgent:
                             report_content = f.read()
                         return {
                             "report": report_content,
-                            "tool_calls": tool_calls,
+                            "metrics": metrics,
+                            "tool_calls": sum(metrics[k] for k in metrics if k.endswith("_calls") and k != "model_calls"),
                             "status": "success"
                         }
                     history.append("System: Invalid format. You must output an action using the exact syntax: Action: ToolName[arguments] (e.g., Action: CLI[status] or Action: Write[filename, content]).")
@@ -111,7 +126,7 @@ class DERSAgent:
                 print(f"[{step+1}] DRS Action: {tool_name}[{tool_arg[:100]}]")
                 
                 if tool_name == "CLI":
-                    tool_calls += 1
+                    metrics["cli_calls"] += 1
                     # Parse CLI args
                     args = tool_arg.split()
                     cli_res = self._run_drs_cmd(workspace, args)
@@ -129,11 +144,12 @@ class DERSAgent:
                                 report_content = f.read()
                             return {
                                 "report": report_content,
-                                "tool_calls": tool_calls,
+                                "metrics": metrics,
+                                "tool_calls": sum(metrics[k] for k in metrics if k.endswith("_calls") and k != "model_calls"),
                                 "status": "success"
                             }
                 elif tool_name == "Search":
-                    tool_calls += 1
+                    metrics["search_calls"] += 1
                     search_results = web_search(tool_arg, max_results=5)
                     obs_parts = []
                     for res in search_results:
@@ -141,7 +157,7 @@ class DERSAgent:
                     observation = "\n".join(obs_parts) if obs_parts else "No results found."
                     history.append(f"Observation: {observation}")
                 elif tool_name == "Read":
-                    tool_calls += 1
+                    metrics["read_calls"] += 1
                     normalized_path = os.path.normpath(tool_arg)
                     if normalized_path.startswith("..") or os.path.isabs(normalized_path):
                         observation = "Error: Access denied (path traversal blocked)."
@@ -159,7 +175,7 @@ class DERSAgent:
                                 observation = f"Error reading file: {e}"
                     history.append(f"Observation: {observation}")
                 elif tool_name == "Write":
-                    tool_calls += 1
+                    metrics["write_calls"] += 1
                     # Extract target file and contents
                     # format: Write[filename, content]
                     # Since content can have commas, parse carefully. Split at first comma.
@@ -182,7 +198,7 @@ class DERSAgent:
                                 observation = f"Error writing file: {e}"
                     history.append(f"Observation: {observation}")
                 elif tool_name == "Exec":
-                    tool_calls += 1
+                    metrics["exec_calls"] += 1
                     # Execute python script
                     # For safety, limit commands to python3 scripts in workspace
                     if not tool_arg.startswith("python3"):
@@ -216,13 +232,15 @@ class DERSAgent:
                     report_content = f.read()
                 return {
                     "report": report_content,
-                    "tool_calls": tool_calls,
+                    "metrics": metrics,
+                    "tool_calls": sum(metrics[k] for k in metrics if k.endswith("_calls") and k != "model_calls"),
                     "status": "success"
                 }
                 
             return {
                 "report": "DRS failed to generate final report within max steps.",
-                "tool_calls": tool_calls,
+                "metrics": metrics,
+                "tool_calls": sum(metrics[k] for k in metrics if k.endswith("_calls") and k != "model_calls"),
                 "status": "timeout"
             }
         finally:

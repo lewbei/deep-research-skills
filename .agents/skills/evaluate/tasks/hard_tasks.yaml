@@ -1,0 +1,144 @@
+# Hard Evaluation Tasks requiring actual web searches and file reading.
+# Solvable only by utilizing tools, preventing parametric memory saturation.
+
+- task_id: hard-01
+  domain: technology
+  prompt: >
+    Research the architecture and key claims of the paper
+    'S1-DeepResearch: Beyond Search, Toward Real-World Long-Horizon Research Agents'
+    (arXiv:2602.11685). What is the trajectory-generation pipeline, what are
+    the stages, and what benchmark results did they report?
+  criteria:
+    - text: "Mentions that trajectory generation has three main stages (Graph-Grounded Task Formulation, Agent Rollout, Multidimensional Verification)"
+      type: positive
+      axis: factual_accuracy
+      weight: 12
+    - text: "Names the 32B model released or evaluated in the paper"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Reports quantitative benchmark performance improvements over the Qwen3-32B backbone"
+      type: positive
+      axis: breadth_depth
+      weight: 12
+    - text: "Identifies at least one stated limitation of the paper (e.g. limited repository coding, tool-mediated multimodal)"
+      type: positive
+      axis: breadth_depth
+      weight: 8
+    - text: "Includes a citation to the arXiv paper identifier (2602.11685)"
+      type: positive
+      axis: citation
+      weight: 10
+
+- task_id: hard-02
+  domain: code_analysis
+  prompt: >
+    Examine the local python package `deep_research/` in the workspace.
+    Analyze the logic used in `deep_research/budget.py` to calculate budget
+    pacing and transition between modes. What are the exact threshold percentages
+    and budget mode names used?
+  criteria:
+    - text: "Correctly identifies the file deep_research/budget.py as containing the transition logic"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Lists all 5 budget modes: explore, commit, sprint, last-stand, halt"
+      type: positive
+      axis: factual_accuracy
+      weight: 15
+    - text: "Correctly states the threshold percentages (e.g. 50% for commit, 75% for sprint, 90% for last-stand, 100% for halt)"
+      type: positive
+      axis: factual_accuracy
+      weight: 12
+    - text: "Explains how elapsed time or remaining time is factored into the budget calculation"
+      type: positive
+      axis: breadth_depth
+      weight: 8
+    - text: "Fails to inspect deep_research/budget.py and instead describes a generic budget policy"
+      type: negative
+      axis: factual_accuracy
+      weight: -20
+
+- task_id: hard-03
+  domain: technology
+  prompt: >
+    Research the release details of Gemini 3.5 Flash and Claude 4.6 (thinking) models.
+    Compare their context window sizes, context caching support, and primary benchmarks
+    reported by Google and Anthropic for coding and reasoning.
+  criteria:
+    - text: "Mentions Gemini 3.5 Flash context window size or capability features"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Mentions Claude 4.6 context window size or thinking features"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Compares their coding or reasoning benchmarks quantitatively"
+      type: positive
+      axis: breadth_depth
+      weight: 12
+    - text: "Discusses context caching capabilities or limitations for at least one model"
+      type: positive
+      axis: breadth_depth
+      weight: 10
+    - text: "Includes links or citations to the official Google/Anthropic announcement posts or release docs"
+      type: positive
+      axis: citation
+      weight: 10
+
+- task_id: hard-04
+  domain: science
+  prompt: >
+    Research the 2025 Nobel Prize in Physics. Who won the prize, what was the
+    specific discovery or invention cited by the Nobel Committee, and what are at
+    least three real-world technological applications of this discovery today?
+  criteria:
+    - text: "Correctly identifies the winner(s) of the 2025 Nobel Prize in Physics"
+      type: positive
+      axis: factual_accuracy
+      weight: 12
+    - text: "Accurately describes the scientific discovery or invention cited by the committee"
+      type: positive
+      axis: factual_accuracy
+      weight: 12
+    - text: "Lists at least three distinct real-world applications of the discovery"
+      type: positive
+      axis: breadth_depth
+      weight: 12
+    - text: "Includes a citation to the official Nobel Committee announcement or press release"
+      type: positive
+      axis: citation
+      weight: 10
+    - text: "Confuses the 2025 Physics prize winners with Chemistry or Medicine prize winners"
+      type: negative
+      axis: factual_accuracy
+      weight: -20
+
+- task_id: hard-05
+  domain: code_analysis
+  prompt: >
+    Examine the local implementation of proxy correlation in `deep_research/proxies.py`.
+    What mathematical formula is used to calculate the Spearman rank correlation
+    coefficient, and how does the code handle ties in ranking?
+  criteria:
+    - text: "Correctly identifies deep_research/proxies.py as the file containing the implementation"
+      type: positive
+      axis: factual_accuracy
+      weight: 10
+    - text: "Correctly states how ties are handled in the ranking logic (e.g. fractional ranks, average rank, or simple index)"
+      type: positive
+      axis: factual_accuracy
+      weight: 15
+    - text: "Explains the difference calculation (d_i) and summation (d_i^2) used in the Spearman formula"
+      type: positive
+      axis: breadth_depth
+      weight: 10
+    - text: "Mentions the minimum number of observations required before correlation is calculated (e.g., 5)"
+      type: positive
+      axis: factual_accuracy
+      weight: 8
+    - text: "Describes a generic Spearman calculation rather than explaining the specific python code implementation"
+      type: negative
+      axis: factual_accuracy
+      weight: -15

@@ -1,33 +1,38 @@
-# Pilot End-to-End Harness and Workflow-Compliance Test
-
-This document reports the execution results of the initial workflow compliance test comparing a direct-generation baseline and the DRS state-machine orchestrator.
+# Evaluation Harness Run Report
 
 ## Configuration
-- **Tasks:** 1 task (pilot-01, technology domain)
-- **Conditions:** Direct Answer Baseline, DRS
+- **Tasks:** 1 tasks, domains: technology
+- **Conditions:** direct, react, drs
 - **Runs per condition:** 1
 - **Agent model:** Gemini 3.5 Flash (Low)
 - **Judge model:** Gemini 3.5 Flash (Low)
 
 ## Summary Results
 
-| Metric | Direct Answer Baseline | DRS | Δ |
-|--------|------------------------|-----|---|
-| Normalized Score | 100.0% | 100.0% | +0.0% |
-| Pass Rate | 100.0% | 100.0% | +0.0% |
-| Factual Accuracy | 100.0% | 100.0% | +0.0% |
-| Breadth & Depth | 100.0% | 100.0% | +0.0% |
-| Harness Tool Invocations | 0 | 2 | +2 |
-| Wall Clock (s) | 25.3s | 189.3s | +164.0s |
+| Metric | DIRECT (mean ± std) | REACT (mean ± std) | DRS (mean ± std) |
+|---|---|---|---|
+| Normalized Score | 100.0% ± 0.0% | 57.1% ± 0.0% | 0.0% ± 0.0% |
+| Pass Rate | 100.0% ± 0.0% | 75.0% ± 0.0% | 25.0% ± 0.0% |
+| Breadth Depth | 100.0% ± 0.0% | 100.0% ± 0.0% | 0.0% ± 0.0% |
+| Factual Accuracy | 100.0% ± 0.0% | 40.0% ± 0.0% | 0.0% ± 0.0% |
+| Search Requests | 0.0 ± 0.0 | 1.0 ± 0.0 | 0.0 ± 0.0 |
+| File Reads | 0.0 ± 0.0 | 0.0 ± 0.0 | 2.0 ± 0.0 |
+| File Writes | 0.0 ± 0.0 | 0.0 ± 0.0 | 0.0 ± 0.0 |
+| CLI Commands | 0.0 ± 0.0 | 0.0 ± 0.0 | 9.0 ± 0.0 |
+| Exec Calls | 0.0 ± 0.0 | 0.0 ± 0.0 | 0.0 ± 0.0 |
+| Model Calls | 1.0 ± 0.0 | 3.0 ± 0.0 | 30.0 ± 0.0 |
+| Estimated Tokens | 484.0 ± 0.0 | 9365.0 ± 0.0 | 92366.0 ± 0.0 |
+| Wall Clock | 10.7s ± 0.0s | 65.6s ± 0.0s | 486.9s ± 0.0s |
 
 ## Per-Task Results
 
 ### pilot-01: technology
 
-| Run | Condition | Score | Pass Rate | Tools | Time | Status |
-|-----|-----------|-------|-----------|-------|------|--------|
-| 1 | Direct Answer Baseline | 100.0% | 100.0% | 0 | 25.3s | success |
-| 1 | DRS | 100.0% | 100.0% | 2 | 189.3s | success |
+| Run | Condition | Score | Pass Rate | Searches | Reads | Writes | CLIs | Execs | Model Calls | Est Tokens | Time | Status |
+|-----|-----------|-------|-----------|----------|-------|--------|------|-------|-------------|------------|------|--------|
+| 1 | direct | 100.0% | 100.0% | 0 | 0 | 0 | 0 | 0 | 1 | 484 | 10.7s | success |
+| 1 | react | 57.1% | 75.0% | 1 | 0 | 0 | 0 | 0 | 3 | 9365 | 65.6s | success |
+| 1 | drs | 0.0% | 25.0% | 0 | 2 | 0 | 9 | 0 | 30 | 92366 | 486.9s | success |
 
 ## Conclusion
-Both the direct baseline and DRS satisfied the limited pilot rubric. The run validates automated DRS workspace orchestration and artifact production, but does not demonstrate a quality advantage due to the single easy task, one run per condition, rubric saturation, same-model judging, and incomplete internal tool-call accounting. DRS incurred substantially higher latency in this pilot.
+This run validates the benchmark suite with complete granular telemetry instrumentation. Standard deviations and tool usage logs across conditions reflect actual agentic work.

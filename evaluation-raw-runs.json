@@ -1,7 +1,7 @@
 [
   {
     "task_id": "pilot-01",
-    "condition": "react",
+    "condition": "direct",
     "run_index": 1,
     "normalized_score": 100.0,
     "pass_rate": 100.0,
@@ -10,16 +10,25 @@
       "breadth_depth": 100.0
     },
     "tool_calls": 0,
-    "wall_clock_seconds": 25.27364468574524,
+    "metrics": {
+      "search_calls": 0,
+      "read_calls": 0,
+      "write_calls": 0,
+      "cli_calls": 0,
+      "exec_calls": 0,
+      "model_calls": 1,
+      "tokens_estimated": 484
+    },
+    "wall_clock_seconds": 10.704042911529541,
     "status": "success",
-    "report_len": 8560,
+    "report_len": 1582,
     "judge_results": [
       {
         "criterion_text": "Mentions Multi-Query Attention (MQA) or Grouped-Query Attention (GQA) as a KV-cache optimization",
         "criterion_type": "positive",
         "axis": "factual_accuracy",
         "weight": 10,
-        "explanation": "The report explicitly mentions and compares both Multi-Query Attention (MQA) and Grouped-Query Attention (GQA) as key architectural attention compression techniques to reduce the KV-cache footprint.",
+        "explanation": "The report explicitly mentions MQA/GQA (Attention Architecture) as a KV-cache optimization technique under the 'Techniques Compared' section, noting that GQA reduces KV memory by 4-8x.",
         "verdict": "MET"
       },
       {
@@ -27,7 +36,7 @@
         "criterion_type": "positive",
         "axis": "factual_accuracy",
         "weight": 15,
-        "explanation": "The report compares the three attention types under Approach A, stating that Multi-Head Attention (MHA) has a 1:1 ratio of query heads to KV heads, Multi-Query Attention (MQA) has a single KV head (N:1 ratio), and Grouped-Query Attention (GQA) groups Query heads into clusters sharing one KV head (e.g., 8:1 or 4:1). This correctly and explicitly describes GQA as having fewer KV heads than MHA (standard multi-head attention) but more than MQA (which only has a single KV head).",
+        "explanation": "The report describes MHA as having unique KV projections for every head, MQA as sharing a single KV head, and GQA as assigning one KV head to each group of query heads, explicitly characterizing GQA as a middle ground between MHA and MQA.",
         "verdict": "MET"
       },
       {
@@ -35,7 +44,7 @@
         "criterion_type": "positive",
         "axis": "breadth_depth",
         "weight": 10,
-        "explanation": "The report explicitly discusses trade-offs between memory savings and generation quality under each approach, highlighting that MQA has noticeable quality degradation compared to GQA, PagedAttention has zero quality impact, and INT4 KV-cache quantization causes minor degradation without advanced calibration.",
+        "explanation": "The report explicitly discusses the trade-offs between memory savings and generation quality/perplexity across various techniques, noting that MQA causes moderate-to-high degradation for extreme savings, GQA and FP8 quantization offer high savings with minimal quality loss, and INT4 achieves 4x memory savings at the cost of slight-to-moderate quality degradation.",
         "verdict": "MET"
       },
       {
@@ -43,7 +52,65 @@
         "criterion_type": "negative",
         "axis": "factual_accuracy",
         "weight": -15,
-        "explanation": "The report evaluates GQA/MQA, PagedAttention, and KV-cache quantization, explicitly pointing out quality/accuracy degradation for MQA and INT4 quantization rather than claiming KV-cache optimization has no impact on output quality. Therefore, it successfully avoids this negative pitfall.",
+        "explanation": "The report acknowledges that KV-cache quantization techniques can impact output quality, noting near-zero loss for FP8 and minor quality degradation for INT4, thereby avoiding the claim that optimization has no impact on quality.",
+        "verdict": "MET"
+      }
+    ]
+  },
+  {
+    "task_id": "pilot-01",
+    "condition": "react",
+    "run_index": 1,
+    "normalized_score": 57.14285714285714,
+    "pass_rate": 75.0,
+    "axis_scores": {
+      "factual_accuracy": 40.0,
+      "breadth_depth": 100.0
+    },
+    "tool_calls": 1,
+    "metrics": {
+      "search_calls": 1,
+      "read_calls": 0,
+      "write_calls": 0,
+      "cli_calls": 0,
+      "exec_calls": 0,
+      "model_calls": 3,
+      "tokens_estimated": 9365
+    },
+    "wall_clock_seconds": 65.56410360336304,
+    "status": "success",
+    "report_len": 9533,
+    "judge_results": [
+      {
+        "criterion_text": "Mentions Multi-Query Attention (MQA) or Grouped-Query Attention (GQA) as a KV-cache optimization",
+        "criterion_type": "positive",
+        "axis": "factual_accuracy",
+        "weight": 10,
+        "explanation": "The report explicitly discusses both Multi-Query Attention (MQA) and Grouped-Query Attention (GQA) in Section 3 (A & B) and Section 4 as key architectural optimizations to reduce the memory footprint and bandwidth consumption of the KV-cache.",
+        "verdict": "MET"
+      },
+      {
+        "criterion_text": "Correctly states that GQA uses fewer KV heads than standard multi-head attention but more than MQA",
+        "criterion_type": "positive",
+        "axis": "factual_accuracy",
+        "weight": 15,
+        "explanation": "While the report describes the mechanisms of MHA (one KV head per query head), MQA (a single shared KV head), and GQA (grouped query heads sharing KV heads), it never explicitly states that GQA uses fewer KV heads than standard multi-head attention but more than MQA.",
+        "verdict": "UNMET"
+      },
+      {
+        "criterion_text": "Discusses trade-offs between memory savings and generation quality",
+        "criterion_type": "positive",
+        "axis": "breadth_depth",
+        "weight": 10,
+        "explanation": "The report discusses the trade-offs between memory savings and generation quality across multiple KV-cache optimization techniques (such as MQA, GQA, Quantized KV Cache, and MLA) in both the text descriptions of Section 3 and the structured comparison matrix in Section 4.",
+        "verdict": "MET"
+      },
+      {
+        "criterion_text": "Claims that KV-cache optimization has no impact on output quality",
+        "criterion_type": "negative",
+        "axis": "factual_accuracy",
+        "weight": -15,
+        "explanation": "The report evaluates multiple KV-cache optimization techniques and clearly indicates that several of them (such as Multi-Query Attention, INT4 Quantization, and Grouped-Query Attention) lead to moderate-to-high, negligible, or near-perfect impact on model output quality, rather than claiming no impact at all across the board. Thus, it avoids the pitfall described in the negative criterion.",
         "verdict": "MET"
       }
     ]
@@ -52,47 +119,56 @@
     "task_id": "pilot-01",
     "condition": "drs",
     "run_index": 1,
-    "normalized_score": 100.0,
-    "pass_rate": 100.0,
+    "normalized_score": 0.0,
+    "pass_rate": 25.0,
     "axis_scores": {
-      "factual_accuracy": 100.0,
-      "breadth_depth": 100.0
+      "factual_accuracy": 0.0,
+      "breadth_depth": 0.0
     },
-    "tool_calls": 2,
-    "wall_clock_seconds": 189.32774686813354,
+    "tool_calls": 11,
+    "metrics": {
+      "search_calls": 0,
+      "read_calls": 2,
+      "write_calls": 0,
+      "cli_calls": 9,
+      "exec_calls": 0,
+      "model_calls": 30,
+      "tokens_estimated": 92366
+    },
+    "wall_clock_seconds": 486.931275844574,
     "status": "success",
-    "report_len": 8017,
+    "report_len": 1203,
     "judge_results": [
       {
         "criterion_text": "Mentions Multi-Query Attention (MQA) or Grouped-Query Attention (GQA) as a KV-cache optimization",
         "criterion_type": "positive",
         "axis": "factual_accuracy",
         "weight": 10,
-        "explanation": "The report explicitly analyzes both Multi-Query Attention (MQA) and Grouped-Query Attention (GQA) in Section 2 and Section 3 as architectural techniques to compress the KV-cache size and optimize VRAM scaling.",
-        "verdict": "MET"
+        "explanation": "The report is a template structure containing placeholder sections and does not mention Multi-Query Attention (MQA) or Grouped-Query Attention (GQA) as a KV-cache optimization.",
+        "verdict": "UNMET"
       },
       {
         "criterion_text": "Correctly states that GQA uses fewer KV heads than standard multi-head attention but more than MQA",
         "criterion_type": "positive",
         "axis": "factual_accuracy",
         "weight": 15,
-        "explanation": "The report states that MQA collapses the KV head count to exactly one, GQA partitions queries into G groups sharing a single KV head, and GQA acts as the mathematical middle-ground between standard MHA and MQA.",
-        "verdict": "MET"
+        "explanation": "The report is a blank template containing only outline sections and contains no content or discussion regarding GQA, KV heads, multi-head attention, or MQA.",
+        "verdict": "UNMET"
       },
       {
         "criterion_text": "Discusses trade-offs between memory savings and generation quality",
         "criterion_type": "positive",
         "axis": "breadth_depth",
         "weight": 10,
-        "explanation": "The report explicitly discusses the trade-offs between memory savings and generation quality for each optimization technique, detailing specific quality and perplexity impacts (such as 'significant degradation in quality' for MQA, 'near-equivalent quality' for GQA, 'zero quality impact' for PagedAttention, and 'negligible perplexity degradation' for Quantized KV Caches).",
-        "verdict": "MET"
+        "explanation": "The report is a template structure containing placeholder sections and does not discuss memory savings, generation quality, or any trade-offs between them.",
+        "verdict": "UNMET"
       },
       {
         "criterion_text": "Claims that KV-cache optimization has no impact on output quality",
         "criterion_type": "negative",
         "axis": "factual_accuracy",
         "weight": -15,
-        "explanation": "The report explicitly states that KV-cache optimization techniques like MQA and quantized KV caches can degrade output quality (e.g., MQA has 'significant degradation' and Quantized KV caches have 'negligible perplexity degradation'), thereby avoiding the pitfall of claiming that KV-cache optimization has no impact on output quality.",
+        "explanation": "The report template makes no mention of KV-cache optimization or its impact on output quality, thereby successfully avoiding the described pitfall.",
         "verdict": "MET"
       }
     ]

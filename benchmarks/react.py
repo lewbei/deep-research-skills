@@ -28,7 +28,17 @@ class ReactAgent:
         
         history = []
         current_prompt = f"Objective: {prompt}\n\nBegin. Start with a Thought."
-        tool_calls = 0
+        
+        # Detailed metrics collection
+        metrics = {
+            "search_calls": 0,
+            "read_calls": 0,
+            "write_calls": 0,
+            "cli_calls": 0,
+            "exec_calls": 0,
+            "model_calls": 0,
+            "tokens_estimated": 0
+        }
         
         for step in range(max_steps):
             # Format conversational history
@@ -38,11 +48,14 @@ class ReactAgent:
                 
             try:
                 # Query LLM
+                metrics["model_calls"] += 1
                 response = query_llm(chat_context, system_instruction=system_instruction, model=self.model)
+                metrics["tokens_estimated"] += (len(chat_context) + len(response)) // 4
             except Exception as e:
                 return {
                     "report": f"ReAct execution failed: {e}",
-                    "tool_calls": tool_calls,
+                    "metrics": metrics,
+                    "tool_calls": metrics["search_calls"] + metrics["read_calls"],
                     "status": "failed"
                 }
                 
@@ -63,11 +76,12 @@ class ReactAgent:
             if tool_name == "Respond":
                 return {
                     "report": tool_arg,
-                    "tool_calls": tool_calls,
+                    "metrics": metrics,
+                    "tool_calls": metrics["search_calls"] + metrics["read_calls"],
                     "status": "success"
                 }
             elif tool_name == "Search":
-                tool_calls += 1
+                metrics["search_calls"] += 1
                 search_results = web_search(tool_arg, max_results=5)
                 # Format observation
                 obs_parts = []
@@ -76,7 +90,7 @@ class ReactAgent:
                 observation = "\n".join(obs_parts) if obs_parts else "No results found."
                 history.append(f"Observation: {observation}")
             elif tool_name == "Read":
-                tool_calls += 1
+                metrics["read_calls"] += 1
                 # Sandbox check: prevent directory escapes
                 normalized_path = os.path.normpath(tool_arg)
                 if normalized_path.startswith("..") or os.path.isabs(normalized_path):
@@ -99,24 +113,29 @@ class ReactAgent:
         # Ask for a final response if max steps reached
         final_prompt = chat_context + "\n\nSystem: Maximum steps reached. Output your final complete report now using Action: Respond[report]."
         try:
+            metrics["model_calls"] += 1
             response = query_llm(final_prompt, system_instruction=system_instruction, model=self.model)
+            metrics["tokens_estimated"] += (len(final_prompt) + len(response)) // 4
             action_match = re.search(r"Action:\s*Respond\[(.*?)\]", response, re.DOTALL)
             if action_match:
                 return {
                     "report": action_match.group(1).strip(),
-                    "tool_calls": tool_calls,
+                    "metrics": metrics,
+                    "tool_calls": metrics["search_calls"] + metrics["read_calls"],
                     "status": "success"
                 }
             else:
                 # If still no Respond, just return the raw response
                 return {
                     "report": response,
-                    "tool_calls": tool_calls,
+                    "metrics": metrics,
+                    "tool_calls": metrics["search_calls"] + metrics["read_calls"],
                     "status": "timeout_no_respond"
                 }
         except Exception as e:
             return {
                 "report": f"ReAct execution timeout recovery failed: {e}",
-                "tool_calls": tool_calls,
+                "metrics": metrics,
+                "tool_calls": metrics["search_calls"] + metrics["read_calls"],
                 "status": "failed"
             }
